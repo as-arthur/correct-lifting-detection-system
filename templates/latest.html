@@ -1,0 +1,222 @@
+<!doctype html>
+<html>
+    <head>
+    <meta charset="utf-8"/>
+    <title>SmartPose - Realtime Visual</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <style>
+            .charts-container {
+                display: flex !important;
+                flex-direction: row !important;
+                justify-content: space-between;
+                align-items: stretch;
+                gap: 20px;
+                margin: 15px 0;
+            }
+            .chart-card {
+                flex: 1 1 50%;
+                min-width: 350px;
+                border: 1px solid #ddd;
+                padding: 10px;
+                border-radius: 6px;
+                box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+                background: #fff;
+            }
+            .chart-card canvas {
+                width: 100% !important;
+                height: 360px !important;
+                display: block;
+            }
+            @media (max-width: 900px) {
+                .charts-container {
+                flex-direction: column !important;
+                }
+                .chart-card { flex: 1 1 100%; }
+            }
+            .tables-row {
+        display: flex !important;
+        flex-direction: row !important;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 20px;
+        margin: 15px 0;
+    }
+    .table-card {
+            flex: 1 1 50%;
+            min-width: 350px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 6px;
+            background: #fafafa;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+            overflow-x: auto;
+        }
+        .table-card table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .table-card th, .table-card td {
+            border: 1px solid #ddd;
+            padding: 4px 6px;
+            text-align: right;
+        }
+        .table-card th {
+            background: #f2f2f2;
+        }
+
+        @media (max-width: 900px) {
+            .charts-container, .tables-row {
+                flex-direction: column !important;
+            }
+            .chart-card, .table-card {
+                flex: 1 1 100%;
+            }
+        }
+        </style>
+    </head>
+    <body>
+    <h2>SmartPose — Realtime Visual & Tables</h2>
+    <p>File ID: <b id="fileId">{{ file_id or "(default)" }}</b> &nbsp; | &nbsp; Refresh interval: <span id="interval">500</span> ms</p>
+
+    <!-- charts berdampingan kiri & kanan -->
+        <div class="charts-container">
+            <div class="chart-card">
+                <h3>Acceleration magnitude (|a|) — MPU1 & MPU2</h3>
+                <canvas id="accChart"></canvas>
+            </div>
+
+            <div class="chart-card">
+                <h3>Gyroscope magnitude (|ω|) — MPU1 & MPU2</h3>
+                <canvas id="gyroChart"></canvas>
+            </div>
+        </div>
+
+    <!-- tabel-tabel di bawah (juga berdampingan jika layar cukup lebar) -->
+    <div class="tables-row">
+        <div class="table-card">
+        <h3>Latest MPU1 (10 rows)</h3>
+        <table id="tbl1">
+            <thead><tr><th>datetime</th><th>ax</th><th>ay</th><th>az</th><th>gx</th><th>gy</th><th>gz</th></tr></thead>
+            <tbody></tbody>
+        </table>
+        </div>
+
+        <div class="table-card">
+        <h3>Latest MPU2 (10 rows)</h3>
+        <table id="tbl2">
+            <thead><tr><th>datetime</th><th>ax</th><th>ay</th><th>az</th><th>gx</th><th>gy</th><th>gz</th></tr></thead>
+            <tbody></tbody>
+        </table>
+        </div>
+    </div>
+
+        <script>
+            const fileId = "{{ file_id or '' }}";
+            let interval = 500; // ms
+            document.getElementById('interval').innerText = interval;
+
+            const accCtx = document.getElementById('accChart').getContext('2d');
+            const gyroCtx = document.getElementById('gyroChart').getContext('2d');
+
+            function createChart(ctx, label1, label2) {
+            return new Chart(ctx, {
+                type: 'line',
+                data: {
+                labels: [],
+                datasets: [
+                    { label: label1,  [], borderWidth: 1, tension:0.2, pointRadius:0 },
+                    { label: label2,  [], borderWidth: 1, tension:0.2, pointRadius:0 }
+                ]
+                },
+                options: {
+                animation:false,
+                normalized: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { display: true, title: { display: true, text: 'time' } },
+                    y: { display: true }
+                },
+                plugins: { legend: { display: true } }
+                }
+            });
+            }
+
+            const accChart = createChart(accCtx, 'MPU1 |a| (g)', 'MPU2 |a| (g)');
+            const gyroChart = createChart(gyroCtx, 'MPU1 |ω| (dps)', 'MPU2 |ω| (dps)');
+
+            async function fetchLatest() {
+            const url = '/latest' + (fileId ? ('?id=' + encodeURIComponent(fileId) + '&n=300') : '?n=300');
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) return;
+                const j = await resp.json();
+
+                function buildSeries(arr) {
+                const times = arr.map(r=> r.datetime);
+                const accmag = arr.map(r => {
+                    const ax = Number(r.ax) || 0;
+                    const ay = Number(r.ay) || 0;
+                    const az = Number(r.az) || 0;
+                    return Math.sqrt(ax*ax + ay*ay + az*az);
+                });
+                const gmag = arr.map(r => {
+                    const gx = Number(r.gx) || 0;
+                    const gy = Number(r.gy) || 0;
+                    const gz = Number(r.gz) || 0;
+                    return Math.sqrt(gx*gx + gy*gy + gz*gz);
+                });
+                return {times, accmag, gmag};
+                }
+
+                const s1 = buildSeries(j.mpu1 || []);
+                const s2 = buildSeries(j.mpu2 || []);
+
+                const maxPoints = 200;
+                const times = (s1.times.length >= s2.times.length) ? s1.times.slice(-maxPoints) : s2.times.slice(-maxPoints);
+
+                accChart.data.labels = times;
+                accChart.data.datasets[0].data = s1.accmag.slice(-times.length);
+                accChart.data.datasets[1].data = s2.accmag.slice(-times.length);
+                accChart.update('none');
+
+                gyroChart.data.labels = times;
+                gyroChart.data.datasets[0].data = s1.gmag.slice(-times.length);
+                gyroChart.data.datasets[1].data = s2.gmag.slice(-times.length);
+                gyroChart.update('none');
+
+                function updateTable(tblId, arr) {
+                const tbody = document.querySelector(tblId + ' tbody');
+                tbody.innerHTML = '';
+                const last = (arr || []).slice(-10).reverse();
+                for (const r of last) {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${r.datetime || ''}</td>
+                                    <td>${r.ax != null ? r.ax.toFixed ? r.ax.toFixed(5) : r.ax : ''}</td>
+                                    <td>${r.ay != null ? (r.ay.toFixed ? r.ay.toFixed(5) : r.ay) : ''}</td>
+                                    <td>${r.az != null ? (r.az.toFixed ? r.az.toFixed(5) : r.az) : ''}</td>
+                                    <td>${r.gx != null ? (r.gx.toFixed ? r.gx.toFixed(3) : r.gx) : ''}</td>
+                                    <td>${r.gy != null ? (r.gy.toFixed ? r.gy.toFixed(3) : r.gy) : ''}</td>
+                                    <td>${r.gz != null ? (r.gz.toFixed ? r.gz.toFixed(3) : r.gz) : ''}</td>`;
+                    tbody.appendChild(tr);
+                }
+                }
+                updateTable('#tbl1', j.mpu1);
+                updateTable('#tbl2', j.mpu2);
+
+            } catch (e) {
+                console.error('fetchLatest error', e);
+            }
+            }
+
+            let pollHandle = null;
+            function startPoll() {
+            if (pollHandle) clearInterval(pollHandle);
+            fetchLatest();
+            pollHandle = setInterval(fetchLatest, interval);
+            }
+
+            startPoll();
+        </script>
+    </body>
+</html>

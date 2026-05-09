@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartPose - Lifting Position Detection</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>SmartPose - Lifting Position Detection</h1>
+            <p>Real-time Monitoring untuk Mencegah Musculoskeletal Disorders</p>
+        </div>
+
+        <!-- Error Message Display -->
+        {% if error_message %}
+        <div class="error-alert">
+            <strong>Error:</strong> {{ error_message }}
+        </div>
+        {% endif %}
+
+        <!-- Control Panel -->
+        <div class="control-panel">
+            <div class="file-control">
+                <label for="fileId">File ID (No. Subjek):</label>
+                <input type="text" id="fileId" value="{{ file_id or '' }}" placeholder="e.g., 05">
+                <button onclick="updateFileId()">Load Data</button>
+            </div>
+
+            <div class="download-section">
+                <h3>Download Data Subjek</h3>
+                <form id="downloadForm" action="/download" method="GET" style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
+                    <div class="form-group">
+                        <label for="subject_no">No. Subjek:</label>
+                        <input type="text" id="subject_no" name="subject_no" placeholder="e.g., 05" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="subject_name">Nama Subjek:</label>
+                        <input type="text" id="subject_name" name="subject_name" placeholder="e.g., Fadli" required>
+                    </div>
+                    <button type="submit" class="btn-download">Download CSV</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Status Info -->
+            <div class="status-info">
+                <div class="status-card">
+                    <h4>Refresh Rate</h4>
+                    <p id="refreshRate">Menghitung...</p>
+                </div>
+                <div class="status-card">
+                    <h4>Data Rate</h4>
+                    <p id="dataRate"></p>
+                </div>
+                <div class="status-card">
+                    <h4>File ID</h4>
+                    <p id="currentFileId">{{ file_id or '(default)' }}</p>
+                </div>
+                <div class="status-card">
+                    <h4>Status</h4>
+                    <p id="connectionStatus">Disconnected</p>
+                </div>
+            </div>
+
+            <!-- Charts Container -->
+            <div class="charts-container">
+                <div class="chart-card">
+                    <h3>Acceleration Magnitude (|a|) — MPU1 & MPU2</h3>
+                    <canvas id="accChart"></canvas>
+                </div>
+
+                <div class="chart-card">
+                    <h3>Gyroscope Magnitude (|ω|) — MPU1 & MPU2</h3>
+                    <canvas id="gyroChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Tables Container -->
+            <div class="tables-container">
+                <div class="table-card">
+                    <h3>Latest MPU1 Data (10 rows)</h3>
+                    <table id="tbl1">
+                        <thead>
+                            <tr>
+                                <th>DateTime</th>
+                                <th>ax</th>
+                                <th>ay</th>
+                                <th>az</th>
+                                <th>gx</th>
+                                <th>gy</th>
+                                <th>gz</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+
+                <div class="table-card">
+                    <h3>Latest MPU2 Data (10 rows)</h3>
+                    <table id="tbl2">
+                        <thead>
+                            <tr>
+                                <th>DateTime</th>
+                                <th>ax</th>
+                                <th>ay</th>
+                                <th>az</th>
+                                <th>gx</th>
+                                <th>gy</th>
+                                <th>gz</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Navigation Links -->
+            <div class="nav-links">
+                <a href="/dashboard" class="btn-link">View Dashboard</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const refreshInterval = 300; // ms
+        let fileId = "{{ file_id or '' }}";
+        let lastFetchTime = null;      // waktu terakhir reset akumulator
+        let lastProcessedEpochMs = 0;   // epoch_ms (milidetik) dari data terakhir yang sudah ditampilkan
+        document.getElementById('dataRate').innerText = 'Menghitung...';
+
+        // Initialize Charts
+        const accCtx = document.getElementById('accChart').getContext('2d');
+        const gyroCtx = document.getElementById('gyroChart').getContext('2d');
+
+        const accChart = new Chart(accCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'MPU1 |a| (g)',
+                        data: [],
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.2,
+                        pointRadius: 0,
+                        fill: true
+                    },
+                    {
+                        label: 'MPU2 |a| (g)',
+                        data: [],
+                        borderColor: 'rgb(255, 159, 64)',
+                        backgroundColor: 'rgba(255, 159, 64, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.2,
+                        pointRadius: 0,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                animation: false,
+                scales: {
+                    x: {
+                        display: true,
+                        title: { display: true, text: 'Time' }
+                    },
+                    y: {
+                        display: true,
+                        title: { display: true, text: 'Acceleration (g)' },
+                        min: 0
+                    }
+                },
+                plugins: {
+                    legend: { display: true, position: 'top' },
+                    filler: { propagate: true }
+                }
+            }
+        });
+
+        const gyroChart = new Chart(gyroCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'MPU1 |ω| (dps)',
+                        data: [],
+                        borderColor: 'rgb(153, 102, 255)',
+                        backgroundColor: 'rgba(153, 102, 255, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.2,
+                        pointRadius: 0,
+                        fill: true
+                    },
+                    {
+                        label: 'MPU2 |ω| (dps)',
+                        data: [],
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.2,
+                        pointRadius: 0,
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                animation: false,
+                scales: {
+                    x: {
+                        display: true,
+                        title: { display: true, text: 'Time' }
+                    },
+                    y: {
+                        display: true,
+                        title: { display: true, text: 'Gyroscope (dps)' },
+                        min: 0
+                    }
+                },
+                plugins: {
+                    legend: { display: true, position: 'top' },
+                    filler: { propagate: true }
+                }
+            }
+        });
+
+        // Update File ID
+        function updateFileId() {
+            fileId = document.getElementById('fileId').value.trim();
+            document.getElementById('currentFileId').innerText = fileId || '(default)';
+            fetchLatest();
+        }
+
+        // Fetch Latest Data
+        async function fetchLatest() {
+            const now = Date.now();
+            if (lastFetchTime !== null) {
+                const deltaMs = now - lastFetchTime;
+                const hz = 1000 / deltaMs;
+                document.getElementById('refreshRate').innerHTML = `${hz.toFixed(1)} Hz <span style="font-size:0.8rem;">(${deltaMs} ms)</span>`;
+            }
+            lastFetchTime = now;
+            const url = '/latest' + (fileId ? ('?id=' + encodeURIComponent(fileId) + '&n=300') : '?n=300');
+            //console.log("Fetching URL:", url); // debug
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) {
+                    document.getElementById('connectionStatus').innerText = 'Error ' + resp.status;
+                    return;
+                }
+                const j = await resp.json();
+                //console.log("Received data:", j); // lihat struktur asli di console
+
+                // --- Deteksi format data ---
+                let mpu1Data = [], mpu2Data = [];
+                if (j.mpu1 && j.mpu2) {
+                    // Format { mpu1: [...], mpu2: [...] }
+                    mpu1Data = j.mpu1;
+                    mpu2Data = j.mpu2;
+                } else if (Array.isArray(j)) {
+                    // Format array campuran, pisahkan berdasarkan mpu_id
+                    mpu1Data = j.filter(item => item.mpu_id == 1);
+                    mpu2Data = j.filter(item => item.mpu_id == 2);
+                    //console.log(`Array format detected: MPU1=${mpu1Data.length}, MPU2=${mpu2Data.length}`);
+                } else {
+                    //console.error("Unknown data format:", j);
+                    document.getElementById('connectionStatus').innerText = 'Format data error';
+                    return;
+                }
+
+                const newSamples = mpu1Data.length + mpu2Data.length;
+                document.getElementById('connectionStatus').innerText = 'Connected ✓';
+
+                // --- Hitung data rate berdasarkan epoch_ms ---
+                let allData = [...mpu1Data, ...mpu2Data];
+                if (allData.length > 0) {
+                    // Urutkan berdasarkan epoch_ms (jika belum urut)
+                    allData.sort((a, b) => a.epoch_ms - b.epoch_ms);
+                    
+                    // Ambil epoch_ms terkecil dan terbesar dari data yang baru diterima
+                    let minEpoch = allData[0].epoch_ms;
+                    let maxEpoch = allData[allData.length - 1].epoch_ms;
+                    
+                    if (lastProcessedEpochMs === 0) {
+                        // Inisialisasi pertama: hanya simpan epoch terakhir, belum hitung rate
+                        lastProcessedEpochMs = maxEpoch;
+                        document.getElementById('dataRate').innerHTML = `Memulai...`;
+                    } else {
+                        // Hitung jumlah data yang memiliki epoch_ms > lastProcessedEpochMs
+                        let newDataCount = allData.filter(d => d.epoch_ms > lastProcessedEpochMs).length;
+                        if (newDataCount > 0) {
+                            // Selisih waktu antara epoch terbaru dan epoch terakhir yang diproses
+                            let deltaSeconds = (maxEpoch - lastProcessedEpochMs) / 1000.0;
+                            if (deltaSeconds > 0) {
+                                let rate = newDataCount / deltaSeconds;
+                                document.getElementById('dataRate').innerHTML = `${rate.toFixed(1)} <span style="font-size:0.8rem;">sampel/dtk</span>`;
+                            } else {
+                                document.getElementById('dataRate').innerHTML = `0 <span style="font-size:0.8rem;">sampel/dtk</span>`;
+                            }
+                            // Update lastProcessedEpochMs ke epoch terbaru
+                            lastProcessedEpochMs = maxEpoch;
+                        } else {
+                            // Tidak ada data baru, rate tetap 0 (bisa ditampilkan pesan)
+                            document.getElementById('dataRate').innerHTML = `0 <span style="font-size:0.8rem;">sampel/dtk</span>`;
+                        }
+                    }
+                } else {
+                    document.getElementById('dataRate').innerHTML = `Tidak ada data`;
+                }
+
+                function buildSeries(arr) {
+                    if (!arr) return { times: [], accmag: [], gmag: [] };
+                    const times = arr.map(r => r.datetime || '');
+                    const accmag = arr.map(r => {
+                        const ax = Number(r.ax) || 0;
+                        const ay = Number(r.ay) || 0;
+                        const az = Number(r.az) || 0;
+                        return Math.sqrt(ax*ax + ay*ay + az*az);
+                    });
+                    const gmag = arr.map(r => {
+                        const gx = Number(r.gx) || 0;
+                        const gy = Number(r.gy) || 0;
+                        const gz = Number(r.gz) || 0;
+                        return Math.sqrt(gx*gx + gy*gy + gz*gz);
+                    });
+                    return { times, accmag, gmag };
+                }
+
+                const s1 = buildSeries(mpu1Data);
+                const s2 = buildSeries(mpu2Data);
+
+                const maxPoints = 200;
+                const times = (s1.times.length >= s2.times.length) ? s1.times.slice(-maxPoints) : s2.times.slice(-maxPoints);
+
+                // Update grafik
+                accChart.data.labels = times;
+                accChart.data.datasets[0].data = s1.accmag.slice(-times.length);
+                accChart.data.datasets[1].data = s2.accmag.slice(-times.length);
+                accChart.update('none');
+
+                gyroChart.data.labels = times;
+                gyroChart.data.datasets[0].data = s1.gmag.slice(-times.length);
+                gyroChart.data.datasets[1].data = s2.gmag.slice(-times.length);
+                gyroChart.update('none');
+
+                // Update tabel
+                updateTable('#tbl1', mpu1Data);
+                updateTable('#tbl2', mpu2Data);
+
+            } catch (e) {
+                console.error('fetchLatest error', e);
+                document.getElementById('connectionStatus').innerText = 'Error: ' + e.message;
+            }
+        }
+
+        function updateTable(tblId, arr) {
+            const tbody = document.querySelector(tblId + ' tbody');
+            tbody.innerHTML = '';
+            const last = (arr || []).slice(-10).reverse();
+            for (const r of last) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${r.datetime || ''}</td>
+                                <td>${r.ax != null ? (typeof r.ax.toFixed === 'function' ? r.ax.toFixed(5) : r.ax) : ''}</td>
+                                <td>${r.ay != null ? (typeof r.ay.toFixed === 'function' ? r.ay.toFixed(5) : r.ay) : ''}</td>
+                                <td>${r.az != null ? (typeof r.az.toFixed === 'function' ? r.az.toFixed(5) : r.az) : ''}</td>
+                                <td>${r.gx != null ? (typeof r.gx.toFixed === 'function' ? r.gx.toFixed(3) : r.gx) : ''}</td>
+                                <td>${r.gy != null ? (typeof r.gy.toFixed === 'function' ? r.gy.toFixed(3) : r.gy) : ''}</td>
+                                <td>${r.gz != null ? (typeof r.gz.toFixed === 'function' ? r.gz.toFixed(3) : r.gz) : ''}</td>`;
+                tbody.appendChild(tr);
+            }
+        }
+        
+        //console.log("Script loaded"); // cek apakah script dijalankan
+
+        // Start Polling
+        let pollHandle = null;
+        function startPoll() {
+            if (pollHandle) clearInterval(pollHandle);
+            fetchLatest();
+            pollHandle = setInterval(fetchLatest, refreshInterval);   // polling setiap 500 ms
+        }
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            //console.log("DOM ready");
+            startPoll();
+        });
+
+    </script>
+</body>
+</html>

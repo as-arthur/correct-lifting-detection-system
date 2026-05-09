@@ -1,0 +1,211 @@
+<!-- templates/dashboard.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Dashboard - SmartPose</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>User Dashboard - Lifting Position Analysis</h2>
+        </div>
+
+        {% if data %}
+        <!-- Top Section: Key Metrics -->
+        <div class="top-section">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h4>Bad Posture Duration</h4>
+                    <div class="metric-value">{{ "%.2f"|format(data.durations.total_bad) }} s</div>
+                </div>
+                <div class="metric-card">
+                    <h4>Good Posture Duration</h4>
+                    <div class="metric-value">{{ "%.2f"|format(data.durations.total_good) }} s</div>
+                </div>
+                <div class="metric-card">
+                    <h4>Average Interval</h4>
+                    <div class="metric-value">{{ "%.2f"|format(data.intervals.avg) }} s</div>
+                </div>
+                <div class="metric-card">
+                    <h4>Total Predictions</h4>
+                    <div class="metric-value">{{ data.overview.total }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Overview Cards -->
+        <div class="overview-section">
+            <div class="overview-card good">
+                <h3>Good Posture</h3>
+                <p class="big-number">{{ data.overview.bagus }}</p>
+                <p class="percentage">{{ data.overview.bagus_pct }}%</p>
+                <p class="label">Avg Duration: {{ "%.2f"|format(data.durations.avg_good) }} s</p>
+            </div>
+
+            <div class="overview-card bad">
+                <h3>Bad Posture</h3>
+                <p class="big-number">{{ data.overview.jelek }}</p>
+                <p class="percentage">{{ data.overview.jelek_pct }}%</p>
+                <p class="label">Avg Duration: {{ "%.2f"|format(data.durations.avg_bad) }} s</p>
+            </div>
+
+            <div class="overview-card sensor">
+                <h3>Active Sensor</h3>
+                <p class="big-number">{{ data.overview.sensor_teraktif }}</p>
+                <p class="label">Primary sensor</p>
+            </div>
+        </div>
+
+        <!-- Middle Section: Charts -->
+        <div class="middle-section">
+            <div class="charts-container">
+                <div class="chart-card">
+                    <h3>Overall Posture Distribution</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="overallChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <h3>Posture Over Time (Per 10 Seconds)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="postureOverTimeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Buzzer Triggers Section -->
+        {% if data.buzzer_triggers %}
+        <div class="buzzer-section">
+            <h3>Anomaly Alerts (Top 3)</h3>
+            <ul class="buzzer-list">
+                {% for trigger in data.buzzer_triggers %}
+                <li class="buzzer-item">
+                    <strong>{{ trigger.datetime }}</strong> - {{ trigger.note }}
+                    <br><small>MPU{{ trigger.mpu_id }}: gy={{ "%.2f"|format(trigger.gy) }} dps, az={{ "%.2f"|format(trigger.az) }} g</small>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <!-- Bottom Section: User Summary -->
+        <div class="bottom-section">
+            <h3>User Summary</h3>
+            <div class="user-info-grid">
+                <div class="info-item">
+                    <h4>User Name</h4>
+                    <div class="info-value">{{ data.user_summary.name }}</div>
+                </div>
+                <div class="info-item">
+                    <h4>Usage Duration</h4>
+                    <div class="info-value">{{ data.user_summary.duration_worn }}</div>
+                </div>
+                <div class="info-item">
+                    <h4>Last Active</h4>
+                    <div class="info-value">{{ data.user_summary.last_active }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Back Button -->
+        <div class="nav-links">
+            <a href="/" class="btn-link">Back to Home</a>
+        </div>
+
+        {% else %}
+        <div class="error-alert">
+            <strong>No Data Available</strong>
+            <p>Unable to load dashboard data. Please try again.</p>
+            <a href="/" class="btn-link">Back to Home</a>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        {% if data %}
+        // Pie Chart: Overall Posture
+        const overallCtx = document.getElementById('overallChart').getContext('2d');
+        new Chart(overallCtx, {
+            type: 'doughnut',
+            data: {
+                labels: {{ data.overall_data.labels | tojson }},
+                datasets: {{ data.overall_data.datasets | tojson }}
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'bottom',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: ${value} (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        // Bar Chart: Posture Over Time
+        const postureCtx = document.getElementById('postureOverTimeChart').getContext('2d');
+        const barChartData = {{ data.posture_over_time_barchart | tojson }};
+        new Chart(postureCtx, {
+            type: 'bar',
+            data: barChartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time Interval (seconds)'
+                        },
+                        ticks: {
+                            maxTicksLimit: 10
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Number of Predictions'
+                        },
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.dataset.label || '';
+                                const value = context.raw || 0;
+                                return `${label}: ${value}`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        {% endif %}
+    </script>
+</body>
+</html>
