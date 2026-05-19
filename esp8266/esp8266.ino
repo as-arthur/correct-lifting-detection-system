@@ -1,6 +1,3 @@
-// ESP8266 (NodeMCU v3) + Adafruit_MPU6050 x2 -> LittleFS CSV + POST ke Flask + serve CSV
-// Periksa/ubah WIFI_SSID, WIFI_PASS, SERVER_HOST sebelum upload
-
 #include <Wire.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
@@ -11,10 +8,10 @@
 #include <LittleFS.h>
 
 // ---------- CONFIG ----------
-#define WIFI_SSID "Galaxy A21sFEC4"
-#define WIFI_PASS "12345677"
+#define WIFI_SSID "Unknown Device"
+#define WIFI_PASS "22222222"
 
-#define SERVER_HOST "10.243.214.200" // Ganti ke IP laptop Flask
+#define SERVER_HOST "10.219.55.166" // Ganti ke IP laptop Flask
 #define SERVER_PORT 5000
 #define SERVER_PATH "/data"
 
@@ -25,7 +22,7 @@
 bool buzzerState = true; //Test buzzer : http://192.168.100.74(IP IoT)/buzzer?state=0/state=1
 
 #define CSV_PATH "data.csv"
-const unsigned long SAMPLE_INTERVAL = 20; // ms
+const unsigned long SAMPLE_INTERVAL = 200; // ms
 const long NTP_TIMEOUT_MS = 10000;
 
 // ---------- objects ----------
@@ -66,8 +63,8 @@ String getDateTimeISO(unsigned long &epoch_ms) {
   struct tm t;
   gmtime_r(&raw, &t);
   unsigned long ms = millis() % 1000;
-  epoch_ms = ((unsigned long)raw) * 1000UL + ms;
-  char buf[30];
+  epoch_ms = (uint64_t)raw * 1000ULL + ms;
+  char buf[32];
   snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%03lu",
            t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
            t.tm_hour, t.tm_min, t.tm_sec, ms);

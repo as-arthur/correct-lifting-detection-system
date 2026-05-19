@@ -1,6 +1,5 @@
-// ESP8266 + BMP280 -> LittleFS CSV + POST ke Flask + serve CSV
 #include <Wire.h>
-#include <Adafruit_BMP280.h>
+#include <Adafruit_BME280.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266WebServer.h>
@@ -8,10 +7,10 @@
 #include <LittleFS.h>
 
 // ---------- CONFIG ----------
-#define WIFI_SSID "Galaxy A21sFEC4"
-#define WIFI_PASS "12345677"
+#define WIFI_SSID "Unknown Device"
+#define WIFI_PASS "22222222"
 
-#define SERVER_HOST "10.243.214.200"
+#define SERVER_HOST "10.219.55.166"
 #define SERVER_PORT 5000
 #define SERVER_PATH "/data"
 
@@ -19,19 +18,19 @@
 #define SEND_TO_SERVER true
 #define I2C_SCAN_ON_BOOT true
 
-#define CSV_PATH "bmp.csv"
-const unsigned long SAMPLE_INTERVAL = 2000; // ms, BMP280 lebih lambat
+#define CSV_PATH "bme.csv"
+const unsigned long SAMPLE_INTERVAL = 200; // ms
 const long NTP_TIMEOUT_MS = 10000;
 
-// Wiring BMP280: SDA -> D2 (GPIO4), SCL -> D1 (GPIO5) sesuai NodeMCU
-#define BMP_SDA 5
-#define BMP_SCL 4
+// Wiring BME280: SDA -> D2 (GPIO4), SCL -> D1 (GPIO5) sesuai NodeMCU
+#define BME_SDA 4
+#define BME_SCL 5
 
 // ---------- objects ----------
-Adafruit_BMP280 bmp;
+Adafruit_BME280 bme;
 ESP8266WebServer server(80);
 
-bool bmp_found = false;
+bool bme_found = false;
 unsigned long lastSample = 0;
 bool ntpSynced = true;
 String csvPath = String(CSV_PATH);
@@ -76,7 +75,7 @@ void ensureCSVExists() {
   if (!LittleFS.exists(csvPath.c_str())) {
     File f = LittleFS.open(csvPath.c_str(), "w");
     if (f) {
-      f.println("datetime,epoch_ms,ts_millis,temperature_c,pressure_hpa,altitude_m");
+      f.println("datetime,epoch_ms,ts_millis,temperature_c,humidity_percent,pressure_hpa,altitude_m");
       f.close();
       Serial.printf("Created %s with header.\n", csvPath.c_str());
     } else {
@@ -87,7 +86,7 @@ void ensureCSVExists() {
 }
 
 void writeCSVToFile(const String &datetime, unsigned long epoch_ms, unsigned long ts_millis,
-                    float temp_c, float pressure_hpa, float altitude_m) {
+                    float temp_c, float humidity, float pressure_hpa, float altitude_m) {
 #if SAVE_TO_LITTLEFS
   File f = LittleFS.open(csvPath.c_str(), "a");
   if (!f) {
@@ -98,6 +97,7 @@ void writeCSVToFile(const String &datetime, unsigned long epoch_ms, unsigned lon
   f.print(epoch_ms); f.print(",");
   f.print(ts_millis); f.print(",");
   f.print(temp_c, 2); f.print(",");
+  f.print(humidity, 2); f.print(",");
   f.print(pressure_hpa, 2); f.print(",");
   f.println(altitude_m, 2);
   f.close();
@@ -159,7 +159,7 @@ bool sendHttpManualTCP(const char *host, int port, const String &path, const Str
 }
 
 void sendToServer(const String &datetime, unsigned long epoch_ms, unsigned long ts_millis,
-                  float temp_c, float pressure_hpa, float altitude_m) {
+                  float temp_c, float humidity, float pressure_hpa, float altitude_m) {
   if (!SEND_TO_SERVER) return;
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected - skip POST");
@@ -170,10 +170,11 @@ void sendToServer(const String &datetime, unsigned long epoch_ms, unsigned long 
   payload += "\"datetime\":\"" + datetime + "\"";
   payload += ",\"epoch_ms\":" + String(epoch_ms);
   payload += ",\"ts_millis\":" + String(ts_millis);
-  payload += ",\"sensor\":\"3\"";
+  payload += ",\"sensor\":\"BME280\"";
   payload += ",\"temperature_c\":" + String(temp_c, 2);
+  payload += ",\"humidity_percent\":" + String(humidity, 2);
   payload += ",\"pressure_hpa\":" + String(pressure_hpa, 2);
-  payload += ",\"altitude_m\":" + String(altitude_m, 2);
+  payload += ",\"altitude_m\":" + String(altitude_m, 3);
   payload += "}";
 
   String full_url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + String(SERVER_PATH);
@@ -193,8 +194,8 @@ void sendToServer(const String &datetime, unsigned long epoch_ms, unsigned long 
 
 // Web server handlers
 void handleRoot() {
-  String html = "<!doctype html><html><head><meta charset='utf-8'><title>ESP BMP280</title></head><body>"
-                "<h3>ESP8266 BMP280 Logger</h3>"
+  String html = "<!doctype html><html><head><meta charset='utf-8'><title>ESP BME280</title></head><body>"
+                "<h3>ESP8266 BME280 Logger</h3>"
                 "<p><a href=\"/" + csvPath + "\">Download CSV</a></p>"
                 "<p><a href=\"/status\">Status (JSON)</a></p>"
                 "</body></html>";
@@ -225,7 +226,7 @@ void handleStatus() {
   String js = "{";
   js += "\"wifi_connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false");
   if (WiFi.status() == WL_CONNECTED) js += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
-  js += ",\"bmp_found\":" + String(bmp_found ? "true" : "false");
+  js += ",\"bme_found\":" + String(bme_found ? "true" : "false");
   js += ",\"csv_path\":\"" + csvPath + "\"}";
   server.send(200, "application/json", js);
 }
@@ -248,8 +249,8 @@ void i2cScanner() {
 // ---------- setup & loop ----------
 void setup() {
   Serial.begin(115200);
-  delay(100);
-  Serial.println("\n=== ESP8266 BMP280 Logger ===");
+  delay(1000);
+  Serial.println("\n=== ESP8266 BME280 Logger ===");
 
 #if SAVE_TO_LITTLEFS
   if (!LittleFS.begin()) {
@@ -259,29 +260,30 @@ void setup() {
   }
 #endif
 
-  Wire.begin(BMP_SDA, BMP_SCL);
+  Wire.begin(BME_SDA, BME_SCL);
   Wire.setClock(400000);
 
   if (I2C_SCAN_ON_BOOT) i2cScanner();
 
-  Serial.println("Initializing BMP280...");
+  Serial.println("Initializing BME280...");
   // Coba alamat 0x76 (default), fallback 0x77
-  bmp_found = bmp.begin(0x76);
-  if (!bmp_found) {
-    bmp_found = bmp.begin(0x77);
-    if (bmp_found) Serial.println("BMP280 OK at 0x77");
-    else Serial.println("BMP280 NOT FOUND");
+  bme_found = bme.begin(0x76);
+  if (!bme_found) {
+    bme_found = bme.begin(0x77);
+    if (bme_found) Serial.println("BME280 OK at 0x77");
+    else Serial.println("BME280 NOT FOUND");
   } else {
-    Serial.println("BMP280 OK at 0x76");
+    Serial.println("BME280 OK at 0x76");
   }
 
-  if (bmp_found) {
-    // Default: oversampling x1, filter off
-    bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,
-                    Adafruit_BMP280::SAMPLING_X2, // temperature
-                    Adafruit_BMP280::SAMPLING_X16, // pressure
-                    Adafruit_BMP280::FILTER_OFF,
-                    Adafruit_BMP280::STANDBY_MS_1000);
+  if (bme_found) {
+    // Set sampling
+    bme.setSampling(Adafruit_BME280::MODE_NORMAL,
+                    Adafruit_BME280::SAMPLING_X2, // temperature
+                    Adafruit_BME280::SAMPLING_X16, // pressure
+                    Adafruit_BME280::SAMPLING_X1, // humidity
+                    Adafruit_BME280::FILTER_OFF,
+                    Adafruit_BME280::STANDBY_MS_1000);
   }
 
   csvPath = String(CSV_PATH);
@@ -343,23 +345,24 @@ void loop() {
   if (now - lastSample < SAMPLE_INTERVAL) return;
   lastSample = now;
 
-  if (!bmp_found) {
-    Serial.println("BMP280 not found, skipping read");
+  if (!bme_found) {
+    Serial.println("BME280 not found, skipping read");
     return;
   }
 
   unsigned long epoch_ms;
   String datetime = getDateTimeISO(epoch_ms);
 
-  float temperature = bmp.readTemperature();      // Celsius
-  float pressure = bmp.readPressure() / 100.0F;  // hPa
-  float altitude = bmp.readAltitude(1013.25);    // meter (standard pressure)
+  float temperature = bme.readTemperature();      // Celsius
+  float humidity = bme.readHumidity();            // %
+  float pressure = bme.readPressure() / 100.0F;   // hPa
+  float altitude = bme.readAltitude(1013.25);     // meter
 
-  if (isnan(temperature) || isnan(pressure)) {
-    Serial.println("BMP280 read error");
+  if (isnan(temperature) || isnan(humidity) || isnan(pressure)) {
+    Serial.println("BME280 read error");
     return;
   }
 
-  writeCSVToFile(datetime, epoch_ms, now, temperature, pressure, altitude);
-  sendToServer(datetime, epoch_ms, now, temperature, pressure, altitude);
+  writeCSVToFile(datetime, epoch_ms, now, temperature, humidity, pressure, altitude);
+  sendToServer(datetime, epoch_ms, now, temperature, humidity, pressure, altitude);
 }

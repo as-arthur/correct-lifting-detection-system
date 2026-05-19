@@ -26,30 +26,25 @@
         <!-- Control Panel -->
         <div class="control-panel">
             <div class="file-control">
-                <label for="fileId">File ID (No. Subjek):</label>
-                <input type="text" id="fileId" value="{{ file_id or '' }}" placeholder="e.g., 05">
-                <button onclick="updateFileId()">Load Data</button>
+                <label>ID Baru:</label>
+                <input type="text" id="newId" placeholder="e.g., 05">
+                <label>Nama Baru:</label>
+                <input type="text" id="newName" placeholder="e.g., Fadli">
+                <button onclick="renameFile()">Rename File</button>
             </div>
-
             <div class="download-section">
-                <h3>Download Data Subjek</h3>
-                <form id="downloadForm" action="/download" method="GET" style="display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap;">
-                    <div class="form-group">
-                        <label for="subject_no">No. Subjek:</label>
-                        <input type="text" id="subject_no" name="subject_no" placeholder="e.g., 05" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="subject_name">Nama Subjek:</label>
-                        <input type="text" id="subject_name" name="subject_name" placeholder="e.g., Fadli" required>
-                    </div>
-                    <button type="submit" class="btn-download">Download CSV</button>
-                </form>
+                <h3>Download Data</h3>
+                <button id="downloadBtn" class="btn-download">Download CSV</button>
+            </div>
+            <div class="feedback-buttons">
+                <button id="btnBaik" class="btn-feedback baik">Baik</button>
+                <button id="btnBuruk" class="btn-feedback buruk">Buruk</button>
             </div>
         </div>
 
         <!-- Main Content -->
         <div class="main-content">
-            <!-- Status Info -->
+            <!-- Status Info (8 cards total) -->
             <div class="status-info">
                 <div class="status-card">
                     <h4>Refresh Rate</h4>
@@ -67,7 +62,30 @@
                     <h4>Status</h4>
                     <p id="connectionStatus">Disconnected</p>
                 </div>
+                
             </div>
+
+            <div class="main-content">
+                <div class="status-info">
+                <!-- BME280 status cards (4 new) -->
+                    <div class="status-card">
+                        <h4>Suhu (BME)</h4>
+                        <p id="bmeTemp">--</p>
+                    </div>
+                    <div class="status-card">
+                        <h4>Kelembaban</h4>
+                        <p id="bmeHum">--</p>
+                    </div>
+                    <div class="status-card">
+                        <h4>Tekanan</h4>
+                        <p id="bmePress">--</p>
+                    </div>
+                    <div class="status-card">
+                        <h4>Ketinggian</h4>
+                        <p id="bmeAlt">--</p>
+                    </div>
+                </div>      
+            </div>          
 
             <!-- Charts Container -->
             <div class="charts-container">
@@ -75,46 +93,38 @@
                     <h3>Acceleration Magnitude (|a|) — MPU1 & MPU2</h3>
                     <canvas id="accChart"></canvas>
                 </div>
-
                 <div class="chart-card">
                     <h3>Gyroscope Magnitude (|ω|) — MPU1 & MPU2</h3>
                     <canvas id="gyroChart"></canvas>
                 </div>
             </div>
 
-            <!-- Tables Container -->
+            <!-- Tables Container: MPU1, MPU2, dan BME280 latest -->
             <div class="tables-container">
                 <div class="table-card">
                     <h3>Latest MPU1 Data (10 rows)</h3>
                     <table id="tbl1">
                         <thead>
-                            <tr>
-                                <th>DateTime</th>
-                                <th>ax</th>
-                                <th>ay</th>
-                                <th>az</th>
-                                <th>gx</th>
-                                <th>gy</th>
-                                <th>gz</th>
-                            </tr>
+                            <tr><th>DateTime</th><th>ax</th><th>ay</th><th>az</th><th>gx</th><th>gy</th><th>gz</th></tr>
                         </thead>
                         <tbody></tbody>
                     </table>
                 </div>
-
                 <div class="table-card">
                     <h3>Latest MPU2 Data (10 rows)</h3>
                     <table id="tbl2">
                         <thead>
-                            <tr>
-                                <th>DateTime</th>
-                                <th>ax</th>
-                                <th>ay</th>
-                                <th>az</th>
-                                <th>gx</th>
-                                <th>gy</th>
-                                <th>gz</th>
-                            </tr>
+                            <tr><th>DateTime</th><th>ax</th><th>ay</th><th>az</th><th>gx</th><th>gy</th><th>gz</th></tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <!-- BME280 latest data table -->
+                <div class="table-card">
+                    <h3>Latest BME280 Data (10 rows)</h3>
+                    <table id="tblBme">
+                        <thead>
+                            <tr><th>DateTime</th><th>Temp (°C)</th><th>Hum (%)</th><th>Pressure (hPa)</th><th>Altitude (m)</th></tr>
                         </thead>
                         <tbody></tbody>
                     </table>
@@ -131,120 +141,111 @@
     <script>
         const refreshInterval = 300; // ms
         let fileId = "{{ file_id or '' }}";
-        let lastFetchTime = null;      // waktu terakhir reset akumulator
-        let lastProcessedEpochMs = 0;   // epoch_ms (milidetik) dari data terakhir yang sudah ditampilkan
+        let lastFetchTime = null;
+        let lastProcessedEpochMs = 0;
         document.getElementById('dataRate').innerText = 'Menghitung...';
 
-        // Initialize Charts
+        // Initialize Charts (sama seperti sebelumnya)
         const accCtx = document.getElementById('accChart').getContext('2d');
         const gyroCtx = document.getElementById('gyroChart').getContext('2d');
 
         const accChart = new Chart(accCtx, {
             type: 'line',
-            data: {
-                labels: [],
-                datasets: [
-                    {
-                        label: 'MPU1 |a| (g)',
-                        data: [],
-                        borderColor: 'rgb(75, 192, 192)',
-                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.2,
-                        pointRadius: 0,
-                        fill: true
-                    },
-                    {
-                        label: 'MPU2 |a| (g)',
-                        data: [],
-                        borderColor: 'rgb(255, 159, 64)',
-                        backgroundColor: 'rgba(255, 159, 64, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.2,
-                        pointRadius: 0,
-                        fill: true
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                animation: false,
-                scales: {
-                    x: {
-                        display: true,
-                        title: { display: true, text: 'Time' }
-                    },
-                    y: {
-                        display: true,
-                        title: { display: true, text: 'Acceleration (g)' },
-                        min: 0
-                    }
-                },
-                plugins: {
-                    legend: { display: true, position: 'top' },
-                    filler: { propagate: true }
-                }
-            }
+            data: { labels: [], datasets: [
+                { label: 'MPU1 |a| (g)', data: [], borderColor: 'rgb(75,192,192)', backgroundColor: 'rgba(75,192,192,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true },
+                { label: 'MPU2 |a| (g)', data: [], borderColor: 'rgb(255,159,64)', backgroundColor: 'rgba(255,159,64,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true }
+            ] },
+            options: { responsive: true, maintainAspectRatio: true, animation: false, scales: { x: { display: true, title: { display: true, text: 'Time' } }, y: { display: true, title: { display: true, text: 'Acceleration (g)' }, min: 0 } }, plugins: { legend: { display: true, position: 'top' }, filler: { propagate: true } } }
         });
 
         const gyroChart = new Chart(gyroCtx, {
             type: 'line',
-            data: {
-                labels: [],
-                datasets: [
-                    {
-                        label: 'MPU1 |ω| (dps)',
-                        data: [],
-                        borderColor: 'rgb(153, 102, 255)',
-                        backgroundColor: 'rgba(153, 102, 255, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.2,
-                        pointRadius: 0,
-                        fill: true
-                    },
-                    {
-                        label: 'MPU2 |ω| (dps)',
-                        data: [],
-                        borderColor: 'rgb(255, 99, 132)',
-                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
-                        borderWidth: 2,
-                        tension: 0.2,
-                        pointRadius: 0,
-                        fill: true
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                animation: false,
-                scales: {
-                    x: {
-                        display: true,
-                        title: { display: true, text: 'Time' }
-                    },
-                    y: {
-                        display: true,
-                        title: { display: true, text: 'Gyroscope (dps)' },
-                        min: 0
-                    }
-                },
-                plugins: {
-                    legend: { display: true, position: 'top' },
-                    filler: { propagate: true }
-                }
-            }
+            data: { labels: [], datasets: [
+                { label: 'MPU1 |ω| (dps)', data: [], borderColor: 'rgb(153,102,255)', backgroundColor: 'rgba(153,102,255,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true },
+                { label: 'MPU2 |ω| (dps)', data: [], borderColor: 'rgb(255,99,132)', backgroundColor: 'rgba(255,99,132,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true }
+            ] },
+            options: { responsive: true, maintainAspectRatio: true, animation: false, scales: { x: { display: true, title: { display: true, text: 'Time' } }, y: { display: true, title: { display: true, text: 'Gyroscope (dps)' }, min: 0 } }, plugins: { legend: { display: true, position: 'top' }, filler: { propagate: true } } }
         });
 
-        // Update File ID
+        function renameFile() {
+            const newId = document.getElementById('newId').value.trim();
+            const newName = document.getElementById('newName').value.trim();
+            if (!newId || !newName) {
+                alert('ID dan Nama harus diisi');
+                return;
+            }
+            fetch('/rename', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_id: fileId, new_id: newId, new_name: newName })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    fileId = newId;
+                    document.getElementById('currentFileId').innerText = fileId;
+                    alert('File berhasil direname');
+                    fetchLatest();
+                } else {
+                    alert('Error: ' + data.reason);
+                }
+            })
+            .catch(err => alert('Gagal rename: ' + err));
+        }
+
+        document.getElementById('downloadBtn').onclick = function() {
+            window.location.href = '/download_current?id=' + encodeURIComponent(fileId);
+        };
+
+        // Tombol Baik/Buruk
+        function sendFeedback(label) {
+            if (!fileId) {
+                alert('Pilih file ID terlebih dahulu');
+                return;
+            }
+            fetch('/feedback', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ file_id: fileId, label: label, timestamp: Date.now() })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    console.log('Feedback tersimpan');
+                } else {
+                    console.error('Gagal simpan feedback');
+                }
+            });
+        }
+
+        document.getElementById('btnBaik').onclick = () => sendFeedback('bagus');
+        document.getElementById('btnBuruk').onclick = () => sendFeedback('jelek');
+
         function updateFileId() {
             fileId = document.getElementById('fileId').value.trim();
             document.getElementById('currentFileId').innerText = fileId || '(default)';
             fetchLatest();
         }
 
-        // Fetch Latest Data
+        // Fungsi untuk update tabel BME
+        function updateBmeTable(bmeArray) {
+            const tbody = document.querySelector('#tblBme tbody');
+            tbody.innerHTML = '';
+            if (!bmeArray || bmeArray.length === 0) return;
+            const lastRows = bmeArray.slice(-10).reverse();
+            for (const r of lastRows) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${r.datetime || ''}</td>
+                    <td>${r.temperature_c != null ? r.temperature_c.toFixed(2) : '--'}</td>
+                    <td>${r.humidity_percent != null ? r.humidity_percent.toFixed(1) : '--'}</td>
+                    <td>${r.pressure_hpa != null ? r.pressure_hpa.toFixed(2) : '--'}</td>
+                    <td>${r.altitude_m != null ? r.altitude_m.toFixed(3) : '--'}</td>
+                `;
+                tbody.appendChild(tr);
+            }
+        }
+
         async function fetchLatest() {
             const now = Date.now();
             if (lastFetchTime !== null) {
@@ -254,7 +255,6 @@
             }
             lastFetchTime = now;
             const url = '/latest' + (fileId ? ('?id=' + encodeURIComponent(fileId) + '&n=300') : '?n=300');
-            //console.log("Fetching URL:", url); // debug
             try {
                 const resp = await fetch(url);
                 if (!resp.ok) {
@@ -262,90 +262,67 @@
                     return;
                 }
                 const j = await resp.json();
-                //console.log("Received data:", j); // lihat struktur asli di console
 
-                // --- Deteksi format data ---
-                let mpu1Data = [], mpu2Data = [];
-                if (j.mpu1 && j.mpu2) {
-                    // Format { mpu1: [...], mpu2: [...] }
-                    mpu1Data = j.mpu1;
-                    mpu2Data = j.mpu2;
-                } else if (Array.isArray(j)) {
-                    // Format array campuran, pisahkan berdasarkan mpu_id
-                    mpu1Data = j.filter(item => item.mpu_id == 1);
-                    mpu2Data = j.filter(item => item.mpu_id == 2);
-                    //console.log(`Array format detected: MPU1=${mpu1Data.length}, MPU2=${mpu2Data.length}`);
-                } else {
-                    //console.error("Unknown data format:", j);
-                    document.getElementById('connectionStatus').innerText = 'Format data error';
-                    return;
-                }
+                // Ambil data MPU dan BME dari respons (asumsikan j memiliki mpu1, mpu2, bme)
+                let mpu1Data = j.mpu1 || [];
+                let mpu2Data = j.mpu2 || [];
+                let bmeData = j.bme || [];  // array of BME readings
 
-                const newSamples = mpu1Data.length + mpu2Data.length;
                 document.getElementById('connectionStatus').innerText = 'Connected ✓';
 
-                // --- Hitung data rate berdasarkan epoch_ms ---
+                // Update BME status cards dengan data terbaru (ambil elemen terakhir)
+                if (bmeData.length > 0) {
+                    const latest = bmeData[bmeData.length - 1];
+                    document.getElementById('bmeTemp').innerHTML = (latest.temperature_c != null ? latest.temperature_c.toFixed(2) + ' °C' : '--');
+                    document.getElementById('bmeHum').innerHTML = (latest.humidity_percent != null ? latest.humidity_percent.toFixed(1) + ' %' : '--');
+                    document.getElementById('bmePress').innerHTML = (latest.pressure_hpa != null ? latest.pressure_hpa.toFixed(2) + ' hPa' : '--');
+                    document.getElementById('bmeAlt').innerHTML = (latest.altitude_m != null ? latest.altitude_m.toFixed(2) + ' m' : '--');
+                } else {
+                    document.getElementById('bmeTemp').innerHTML = '--';
+                    document.getElementById('bmeHum').innerHTML = '--';
+                    document.getElementById('bmePress').innerHTML = '--';
+                    document.getElementById('bmeAlt').innerHTML = '--';
+                }
+
+                // Update tabel BME
+                updateBmeTable(bmeData);
+
+                // Hitung data rate untuk MPU (sama seperti sebelumnya)
                 let allData = [...mpu1Data, ...mpu2Data];
                 if (allData.length > 0) {
-                    // Urutkan berdasarkan epoch_ms (jika belum urut)
                     allData.sort((a, b) => a.epoch_ms - b.epoch_ms);
-                    
-                    // Ambil epoch_ms terkecil dan terbesar dari data yang baru diterima
-                    let minEpoch = allData[0].epoch_ms;
                     let maxEpoch = allData[allData.length - 1].epoch_ms;
-                    
                     if (lastProcessedEpochMs === 0) {
-                        // Inisialisasi pertama: hanya simpan epoch terakhir, belum hitung rate
                         lastProcessedEpochMs = maxEpoch;
                         document.getElementById('dataRate').innerHTML = `Memulai...`;
                     } else {
-                        // Hitung jumlah data yang memiliki epoch_ms > lastProcessedEpochMs
                         let newDataCount = allData.filter(d => d.epoch_ms > lastProcessedEpochMs).length;
                         if (newDataCount > 0) {
-                            // Selisih waktu antara epoch terbaru dan epoch terakhir yang diproses
                             let deltaSeconds = (maxEpoch - lastProcessedEpochMs) / 1000.0;
-                            if (deltaSeconds > 0) {
-                                let rate = newDataCount / deltaSeconds;
-                                document.getElementById('dataRate').innerHTML = `${rate.toFixed(1)} <span style="font-size:0.8rem;">sampel/dtk</span>`;
-                            } else {
-                                document.getElementById('dataRate').innerHTML = `0 <span style="font-size:0.8rem;">sampel/dtk</span>`;
-                            }
-                            // Update lastProcessedEpochMs ke epoch terbaru
+                            let rate = newDataCount / deltaSeconds;
+                            document.getElementById('dataRate').innerHTML = `${rate.toFixed(1)} <span style="font-size:0.8rem;">sampel/dtk</span>`;
                             lastProcessedEpochMs = maxEpoch;
                         } else {
-                            // Tidak ada data baru, rate tetap 0 (bisa ditampilkan pesan)
                             document.getElementById('dataRate').innerHTML = `0 <span style="font-size:0.8rem;">sampel/dtk</span>`;
                         }
                     }
                 } else {
-                    document.getElementById('dataRate').innerHTML = `Tidak ada data`;
+                    document.getElementById('dataRate').innerHTML = `Tidak ada data MPU`;
                 }
 
                 function buildSeries(arr) {
                     if (!arr) return { times: [], accmag: [], gmag: [] };
                     const times = arr.map(r => r.datetime || '');
-                    const accmag = arr.map(r => {
-                        const ax = Number(r.ax) || 0;
-                        const ay = Number(r.ay) || 0;
-                        const az = Number(r.az) || 0;
-                        return Math.sqrt(ax*ax + ay*ay + az*az);
-                    });
-                    const gmag = arr.map(r => {
-                        const gx = Number(r.gx) || 0;
-                        const gy = Number(r.gy) || 0;
-                        const gz = Number(r.gz) || 0;
-                        return Math.sqrt(gx*gx + gy*gy + gz*gz);
-                    });
+                    const accmag = arr.map(r => Math.sqrt( (Number(r.ax)||0)**2 + (Number(r.ay)||0)**2 + (Number(r.az)||0)**2 ));
+                    const gmag = arr.map(r => Math.sqrt( (Number(r.gx)||0)**2 + (Number(r.gy)||0)**2 + (Number(r.gz)||0)**2 ));
                     return { times, accmag, gmag };
                 }
 
                 const s1 = buildSeries(mpu1Data);
                 const s2 = buildSeries(mpu2Data);
-
                 const maxPoints = 200;
                 const times = (s1.times.length >= s2.times.length) ? s1.times.slice(-maxPoints) : s2.times.slice(-maxPoints);
 
-                // Update grafik
                 accChart.data.labels = times;
                 accChart.data.datasets[0].data = s1.accmag.slice(-times.length);
                 accChart.data.datasets[1].data = s2.accmag.slice(-times.length);
@@ -356,7 +333,6 @@
                 gyroChart.data.datasets[1].data = s2.gmag.slice(-times.length);
                 gyroChart.update('none');
 
-                // Update tabel
                 updateTable('#tbl1', mpu1Data);
                 updateTable('#tbl2', mpu2Data);
 
@@ -372,33 +348,27 @@
             const last = (arr || []).slice(-10).reverse();
             for (const r of last) {
                 const tr = document.createElement('tr');
-                tr.innerHTML = `<td>${r.datetime || ''}</td>
-                                <td>${r.ax != null ? (typeof r.ax.toFixed === 'function' ? r.ax.toFixed(5) : r.ax) : ''}</td>
-                                <td>${r.ay != null ? (typeof r.ay.toFixed === 'function' ? r.ay.toFixed(5) : r.ay) : ''}</td>
-                                <td>${r.az != null ? (typeof r.az.toFixed === 'function' ? r.az.toFixed(5) : r.az) : ''}</td>
-                                <td>${r.gx != null ? (typeof r.gx.toFixed === 'function' ? r.gx.toFixed(3) : r.gx) : ''}</td>
-                                <td>${r.gy != null ? (typeof r.gy.toFixed === 'function' ? r.gy.toFixed(3) : r.gy) : ''}</td>
-                                <td>${r.gz != null ? (typeof r.gz.toFixed === 'function' ? r.gz.toFixed(3) : r.gz) : ''}</td>`;
+                tr.innerHTML = `
+                    <td>${r.datetime || ''}</td>
+                    <td>${r.ax != null ? (typeof r.ax.toFixed === 'function' ? r.ax.toFixed(5) : r.ax) : ''}</td>
+                    <td>${r.ay != null ? (typeof r.ay.toFixed === 'function' ? r.ay.toFixed(5) : r.ay) : ''}</td>
+                    <td>${r.az != null ? (typeof r.az.toFixed === 'function' ? r.az.toFixed(5) : r.az) : ''}</td>
+                    <td>${r.gx != null ? (typeof r.gx.toFixed === 'function' ? r.gx.toFixed(3) : r.gx) : ''}</td>
+                    <td>${r.gy != null ? (typeof r.gy.toFixed === 'function' ? r.gy.toFixed(3) : r.gy) : ''}</td>
+                    <td>${r.gz != null ? (typeof r.gz.toFixed === 'function' ? r.gz.toFixed(3) : r.gz) : ''}</td>
+                `;
                 tbody.appendChild(tr);
             }
         }
-        
-        //console.log("Script loaded"); // cek apakah script dijalankan
 
-        // Start Polling
         let pollHandle = null;
         function startPoll() {
             if (pollHandle) clearInterval(pollHandle);
             fetchLatest();
-            pollHandle = setInterval(fetchLatest, refreshInterval);   // polling setiap 500 ms
+            pollHandle = setInterval(fetchLatest, refreshInterval);
         }
 
-        // Initialize on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            //console.log("DOM ready");
-            startPoll();
-        });
-
+        document.addEventListener('DOMContentLoaded', startPoll);
     </script>
 </body>
 </html>

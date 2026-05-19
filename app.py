@@ -22,14 +22,15 @@ def sanitize_file_id(s):
         return None
     return re.sub(r"[^A-Za-z0-9_-]", "_", s)
 
-def get_today_filepath(file_id=None, date_obj=None):
+def get_today_filepath(prefix="imu", file_id=None, date_obj=None):
     if date_obj is None:
         date_obj = datetime.datetime.now()
     today = date_obj.strftime("%Y-%m-%d")
     if file_id:
-        return os.path.join(SAVE_DIR, f"{today}_{file_id}.csv")
+        filename = f"{prefix}_{today}_{file_id}.csv"
     else:
-        return os.path.join(SAVE_DIR, f"{today}.csv")
+        filename = f"{prefix}_{today}.csv"
+    return os.path.join(SAVE_DIR, filename)
 
 # --- Fungsi: Membaca data dari file CSV ---
 def read_csv_data(file_path):
@@ -374,9 +375,16 @@ def upload_data():
             "file_id": request.form.get("file_id"),
         }
 
+    # Deteksi sensor BMP280
+    if data and ("sensor" in data or "temperature_c" in data):
+        return handle_bmp_data(data)
+    else:
+        return handle_mpu_data(data)
+
+def handle_mpu_data(data):
     raw_id = data.get("file_id") if isinstance(data, dict) else None
     file_id = sanitize_file_id(raw_id)
-    filepath = get_today_filepath(file_id=file_id)
+    filepath = get_today_filepath(prefix="imu", file_id=file_id)      # asumsi fungsi ini sudah ada
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     file_exists = os.path.isfile(filepath)
 
@@ -401,12 +409,45 @@ def upload_data():
         print("Error writing file:", e)
         return jsonify({"status":"error","reason":str(e)}), 500
 
-    print("Saved to", os.path.basename(filepath))
+    print("Saved MPU to", os.path.basename(filepath))
     return jsonify({"status":"ok", "saved_to": os.path.basename(filepath)})
 
-# ---------- helper: read tail lines from today's file and parse CSV ----------
-def read_latest_rows(file_id=None, max_lines=500):
-    path = get_today_filepath(file_id=file_id)
+def handle_bmp_data(data):
+    raw_id = data.get("file_id") if isinstance(data, dict) else None
+    file_id = sanitize_file_id(raw_id)
+    # Gunakan fungsi get_today_filepath_bmp atau modifikasi get_today_filepath dengan prefix
+    filepath = get_today_filepath(prefix="bmp", file_id=file_id)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    file_exists = os.path.isfile(filepath)
+
+    try:
+        with open(filepath, "a", newline='') as f:
+            if not file_exists:
+                f.write("datetime,epoch_ms,ts_millis,sensor,temperature_c,pressure_hpa,altitude_m\n")
+
+            now = data.get("datetime") or datetime.datetime.now().isoformat()
+            epoch_ms = data.get("epoch_ms") or ""
+            ts_millis = data.get("ts_millis") or ""
+            sensor = data.get("sensor") or "3"
+            temp = data.get("temperature_c") or ""
+            press = data.get("pressure_hpa") or ""
+            alt = data.get("altitude_m") or ""
+
+            f.write(f"{now},{epoch_ms},{ts_millis},{sensor},{temp},{press},{alt}\n")
+    except Exception as e:
+        print("Error writing BMP file:", e)
+        return jsonify({"status":"error","reason":str(e)}), 500
+
+    print("Saved BMP to", os.path.basename(filepath))
+    return jsonify({"status":"ok", "saved_to": os.path.basename(filepath)})
+
+# ---------- helper: read tail lines from file with given prefix ----------
+def read_latest_rows_by_prefix(prefix, file_id=None, max_lines=500):
+    """
+    Membaca baris terakhir dari file CSV dengan prefix tertentu.
+    prefix: 'imu' untuk data MPU, 'bmp' untuk data BME280
+    """
+    path = get_today_filepath(prefix=prefix, file_id=file_id)
     if not os.path.exists(path):
         return []
 
@@ -420,15 +461,10 @@ def read_latest_rows(file_id=None, max_lines=500):
         return rows
 
     all_lines = list(dq)
-    header = None
+    # Lewati header jika ada (baris pertama diawali "datetime")
     if all_lines and all_lines[0].startswith("datetime"):
-        header = all_lines[0].split(",")
         data_lines = all_lines[1:]
     else:
-        with open(path, "r", newline='') as f:
-            first = f.readline()
-            if first.startswith("datetime"):
-                header = first.strip().split(",")
         data_lines = all_lines
 
     for ln in data_lines:
@@ -436,26 +472,39 @@ def read_latest_rows(file_id=None, max_lines=500):
             continue
         try:
             parts = list(csv.reader([ln]))[0]
-            while len(parts) < 10:
-                parts.append("")
-            d = {
-                "datetime": parts[0],
-                "epoch_ms": parts[1],
-                "ts_millis": parts[2],
-                "mpu_id": parts[3],
-                "ax": parts[4],
-                "ay": parts[5],
-                "az": parts[6],
-                "gx": parts[7],
-                "gy": parts[8],
-                "gz": parts[9],
-            }
+            if prefix == "imu":  # data MPU (10 kolom)
+                while len(parts) < 10:
+                    parts.append("")
+                d = {
+                    "datetime": parts[0],
+                    "epoch_ms": parts[1],
+                    "ts_millis": parts[2],
+                    "mpu_id": parts[3],    # tambahan
+                    "ax": parts[4],
+                    "ay": parts[5],
+                    "az": parts[6],
+                    "gx": parts[7],
+                    "gy": parts[8],
+                    "gz": parts[9],
+                }
+            else:  # data BME280 (prefix 'bmp', minimal 7 kolom)
+                if len(parts) < 7:
+                    continue
+                d = {
+                    "datetime": parts[0],
+                    "epoch_ms": parts[1],
+                    "ts_millis": parts[2],
+                    "sensor": parts[3],
+                    "temperature_c": float(parts[4]) if parts[4] else None,
+                    "pressure_hpa": float(parts[5]) if parts[5] else None,
+                    "altitude_m": float(parts[6]) if parts[6] else None,
+                }
             rows.append(d)
         except Exception:
             continue
     return rows
 
-# ---------- endpoint: return latest data grouped per MPU ----------
+# ---------- endpoint: return latest data from MPU and BME280 ----------
 @app.route("/latest")
 def latest_json():
     raw_id = request.args.get("id")
@@ -465,11 +514,12 @@ def latest_json():
     except:
         n = 500
 
-    rows = read_latest_rows(file_id=file_id, max_lines=n+10)
+    # Baca data MPU (file prefix "imu")
+    mpu_rows = read_latest_rows_by_prefix("imu", file_id=file_id, max_lines=n+10)
 
     mpu1 = []
     mpu2 = []
-    for r in rows:
+    for r in mpu_rows:
         def tofloat(x):
             try:
                 return float(x)
@@ -477,7 +527,7 @@ def latest_json():
                 return None
         entry = {
             "datetime": r["datetime"],
-            "epoch_ms": int(r["epoch_ms"]) if r["epoch_ms"].isdigit() else r["epoch_ms"],
+            "epoch_ms": int(r["epoch_ms"]) if str(r["epoch_ms"]).isdigit() else r["epoch_ms"],
             "ts_millis": r["ts_millis"],
             "mpu_id": r["mpu_id"],
             "ax": tofloat(r["ax"]),
@@ -492,7 +542,17 @@ def latest_json():
         elif str(r["mpu_id"]) == "2" or str(r["mpu_id"]).lower() == "2":
             mpu2.append(entry)
 
-    return jsonify({"mpu1": mpu1, "mpu2": mpu2})
+    # Baca data BME280 (file prefix "bmp")
+    bme_rows = read_latest_rows_by_prefix("bmp", file_id=file_id, max_lines=n)
+
+    # Kirimkan semua data dalam satu respons JSON
+    return jsonify({
+        "mpu1": mpu1,
+        "mpu2": mpu2,
+        "bme": bme_rows
+    })
+
+
 
 # ---------- Route: Download CSV dengan format custom ----------
 @app.route("/download", methods=["GET"])
