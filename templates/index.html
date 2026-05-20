@@ -49,15 +49,15 @@
                 <div class="status-card">
                     <h4>Refresh Rate</h4>
                     <p id="refreshRate">Menghitung...</p>
-                </div>
+                </div> 
                 <div class="status-card">
                     <h4>Data Rate</h4>
                     <p id="dataRate"></p>
                 </div>
-                <div class="status-card">
+                {# <div class="status-card">
                     <h4>File ID</h4>
                     <p id="currentFileId">{{ file_id or '(default)' }}</p>
-                </div>
+                </div> #}
                 <div class="status-card">
                     <h4>Status</h4>
                     <p id="connectionStatus">Disconnected</p>
@@ -167,59 +167,6 @@
             options: { responsive: true, maintainAspectRatio: true, animation: false, scales: { x: { display: true, title: { display: true, text: 'Time' } }, y: { display: true, title: { display: true, text: 'Gyroscope (dps)' }, min: 0 } }, plugins: { legend: { display: true, position: 'top' }, filler: { propagate: true } } }
         });
 
-        function renameFile() {
-            const newId = document.getElementById('newId').value.trim();
-            const newName = document.getElementById('newName').value.trim();
-            if (!newId || !newName) {
-                alert('ID dan Nama harus diisi');
-                return;
-            }
-            fetch('/rename', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ file_id: fileId, new_id: newId, new_name: newName })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'ok') {
-                    fileId = newId;
-                    document.getElementById('currentFileId').innerText = fileId;
-                    alert('File berhasil direname');
-                    fetchLatest();
-                } else {
-                    alert('Error: ' + data.reason);
-                }
-            })
-            .catch(err => alert('Gagal rename: ' + err));
-        }
-
-        document.getElementById('downloadBtn').onclick = function() {
-            window.location.href = '/download_current?id=' + encodeURIComponent(fileId);
-        };
-
-        // Tombol Baik/Buruk
-        function sendFeedback(label) {
-            if (!fileId) {
-                alert('Pilih file ID terlebih dahulu');
-                return;
-            }
-            fetch('/feedback', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ file_id: fileId, label: label, timestamp: Date.now() })
-            })
-            .then(res => res.json())
-            .then(data => {
-                if (data.status === 'ok') {
-                    console.log('Feedback tersimpan');
-                } else {
-                    console.error('Gagal simpan feedback');
-                }
-            });
-        }
-
-        document.getElementById('btnBaik').onclick = () => sendFeedback('bagus');
-        document.getElementById('btnBuruk').onclick = () => sendFeedback('jelek');
 
         function updateFileId() {
             fileId = document.getElementById('fileId').value.trim();
