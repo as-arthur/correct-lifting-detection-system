@@ -9,10 +9,10 @@
 #include <LittleFS.h>
 
 // ---------- CONFIG ----------
-#define WIFI_SSID "realme"
-#define WIFI_PASS "11111111"
+#define WIFI_SSID "Unknown Device" //"realme" 
+#define WIFI_PASS "22222222" //"11111111"
 
-#define SERVER_HOST "10.218.175.247" // Ganti ke IP laptop Flask
+#define SERVER_HOST "10.213.165.166"
 #define SERVER_PORT 5000
 #define SERVER_PATH "/data"
 
@@ -48,7 +48,7 @@ void initNTP() {
       Serial.println("NTP synchronized.");
       return;
     }
-    delay(200);
+    delay(2000);
   }
   ntpSynced = false;
   Serial.println("NTP not synchronized (timeout).");
@@ -266,8 +266,8 @@ void setup() {
   }
 #endif
 
-  // I2C (use safer pins D2 = SDA, D1 = SCL)
-  Wire.begin(D3, D1);
+  // I2C (use safer pins D3 = SDA, D1 = SCL)
+  Wire.begin(D2, D1);
 
   if (I2C_SCAN_ON_BOOT) i2cScanner();
 
@@ -349,10 +349,10 @@ void setup() {
       return;
     }
     String s = server.arg("state");
-    if (s == "1") {
+    if (s == "0") {
       digitalWrite(BUZZER_PIN, HIGH);
       buzzerState = true;
-    } else if (s == "0") {
+    } else if (s == "1") {
       digitalWrite(BUZZER_PIN, LOW);
       buzzerState = false;
     } else {

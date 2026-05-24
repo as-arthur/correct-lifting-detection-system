@@ -4,8 +4,31 @@ import re
 import csv
 import math
 import datetime
+import joblib
+import numpy as np
+import pandas as pd
 from collections import deque, defaultdict
 from flask import Flask, request, send_file, abort, jsonify, render_template, redirect, url_for
+from sklearn.preprocessing import StandardScaler
+
+MODEL_PATH = "model\\random_forest_model.pkl"
+SCALER_PATH = "model\\scaler.pkl"
+
+# Cache model dan scaler
+_rf_model = None
+_scaler = None
+
+def load_model():
+    global _rf_model
+    if _rf_model is None:
+        _rf_model = joblib.load(MODEL_PATH)
+    return _rf_model
+
+def load_scaler():
+    global _scaler
+    if _scaler is None:
+        _scaler = joblib.load(SCALER_PATH)
+    return _scaler
 
 SAVE_DIR = r"dataUser"
 os.makedirs(SAVE_DIR, exist_ok=True)
@@ -312,6 +335,138 @@ def get_dashboard_data(file_path):
     }
 
 
+
+def get_latest_model_input(file_id=None):
+    """
+    Membaca data terbaru dari file IMU (MPU1 & MPU2) dan BMP,
+    lalu mengembalikan dictionary berisi 14 fitur yang diperlukan model.
+    Jika data sensor tidak tersedia, nilai fitur diisi 0.
+    
+    Returns:
+        dict: selalu berisi 'success': True dan 'data' (14 fitur)
+    """
+    # Helper functions
+    def to_float(val):
+        try:
+            return float(val) if val not in (None, "") else 0.0
+        except:
+            return 0.0
+    
+    def to_int(val):
+        try:
+            return int(val) if val not in (None, "") else 0
+        except:
+            return 0
+    
+    # Inisialisasi semua fitur dengan 0
+    features = {
+        "ax1": 0.0, "ay1": 0.0, "az1": 0.0,
+        "gx1": 0.0, "gy1": 0.0, "gz1": 0.0,
+        "ax2": 0.0, "ay2": 0.0, "az2": 0.0,
+        "gx2": 0.0, "gy2": 0.0, "gz2": 0.0,
+        "pressure_hpa": 0.0,
+        "altitude_m": 0.0
+    }
+    
+    raw_sources = {
+        "mpu1_time_ms": None,
+        "mpu2_time_ms": None,
+        "bmp_time_ms": None,
+        "mpu1_datetime": None,
+        "mpu2_datetime": None,
+        "bmp_datetime": None
+    }
+    
+    # 1. Baca data IMU dan BMP
+    imu_rows = read_latest_rows_by_prefix("imu", file_id=file_id, max_lines=200)
+    bmp_rows = read_latest_rows_by_prefix("bmp", file_id=file_id, max_lines=50)
+    
+    # 2. Pisahkan MPU1 dan MPU2
+    mpu1_list = []
+    mpu2_list = []
+    for row in imu_rows:
+        mpu_id = str(row.get("mpu_id", "")).strip()
+        if mpu_id == "1":
+            mpu1_list.append(row)
+        elif mpu_id == "2":
+            mpu2_list.append(row)
+    
+    # 3. Ambil data MPU1 dan MPU2 terbaru (tanpa sinkronisasi wajib)
+    mpu1_row = None
+    mpu2_row = None
+    
+    if mpu1_list:
+        mpu1_row = mpu1_list[-1]  # ambil terbaru
+        raw_sources["mpu1_time_ms"] = mpu1_row.get("epoch_ms")
+        raw_sources["mpu1_datetime"] = mpu1_row.get("datetime")
+    
+    if mpu2_list:
+        mpu2_row = mpu2_list[-1]
+        raw_sources["mpu2_time_ms"] = mpu2_row.get("epoch_ms")
+        raw_sources["mpu2_datetime"] = mpu2_row.get("datetime")
+    
+    # Jika salah satu MPU tidak ada, yang lainnya tetap dipakai (nilai 0 untuk yang hilang)
+    # Tapi kita tetap berusaha mencari pasangan yang sinkron jika keduanya ada
+    if mpu1_row and mpu2_row:
+        # Coba cari pasangan sinkron (selisih <= 100ms)
+        matched = None
+        for row2 in reversed(mpu2_list):
+            ts2 = to_int(row2.get("epoch_ms"))
+            if ts2 == 0:
+                continue
+            best_match = None
+            best_diff = float('inf')
+            for row1 in reversed(mpu1_list):
+                ts1 = to_int(row1.get("epoch_ms"))
+                if ts1 == 0:
+                    continue
+                diff = abs(ts1 - ts2)
+                if diff < best_diff and diff <= 100:
+                    best_diff = diff
+                    best_match = row1
+            if best_match:
+                matched = (best_match, row2)
+                break
+        if matched:
+            mpu1_row, mpu2_row = matched
+            raw_sources["mpu1_time_ms"] = mpu1_row.get("epoch_ms")
+            raw_sources["mpu2_time_ms"] = mpu2_row.get("epoch_ms")
+    
+    # 4. Isi fitur dari MPU1 (jika ada)
+    if mpu1_row:
+        features["ax1"] = to_float(mpu1_row.get("ax"))
+        features["ay1"] = to_float(mpu1_row.get("ay"))
+        features["az1"] = to_float(mpu1_row.get("az"))
+        features["gx1"] = to_float(mpu1_row.get("gx"))
+        features["gy1"] = to_float(mpu1_row.get("gy"))
+        features["gz1"] = to_float(mpu1_row.get("gz"))
+    
+    # 5. Isi fitur dari MPU2 (jika ada)
+    if mpu2_row:
+        features["ax2"] = to_float(mpu2_row.get("ax"))
+        features["ay2"] = to_float(mpu2_row.get("ay"))
+        features["az2"] = to_float(mpu2_row.get("az"))
+        features["gx2"] = to_float(mpu2_row.get("gx"))
+        features["gy2"] = to_float(mpu2_row.get("gy"))
+        features["gz2"] = to_float(mpu2_row.get("gz"))
+    
+    # 6. Data BMP: cari yang terbaru (tidak perlu sinkron ketat)
+    bmp_row = None
+    if bmp_rows:
+        bmp_row = bmp_rows[-1]  # ambil terbaru
+        raw_sources["bmp_time_ms"] = bmp_row.get("epoch_ms")
+        raw_sources["bmp_datetime"] = bmp_row.get("datetime")
+        features["pressure_hpa"] = to_float(bmp_row.get("pressure_hpa"))
+        features["altitude_m"] = to_float(bmp_row.get("altitude_m"))
+    
+    # 7. Kembalikan hasil (selalu success)
+    return {
+        "success": True,
+        "data": features,
+        "message": "Data berhasil disusun (nilai 0 untuk sensor yang tidak tersedia).",
+        "raw_sources": raw_sources
+    }
+
 # --- Route: Home Page dengan Visualisasi Real-time ---
 @app.route("/")
 def index():
@@ -319,6 +474,111 @@ def index():
     error_message = request.args.get("error", "")
     return render_template('index.html', file_id=file_id, error_message=error_message)
 
+@app.route("/predict", methods=["GET"])
+def predict_realtime():
+    """
+    Endpoint untuk prediksi realtime berdasarkan data sensor terbaru.
+    Output: { "prediction": int, "label": str, "probabilities": list }
+    """
+    file_id = request.args.get("id")
+    sanitized_id = sanitize_file_id(file_id)
+    
+    # Ambil data terbaru yang sudah diformat (14 fitur)
+    result = get_latest_model_input(file_id=sanitized_id)
+    features = result["data"]  # dictionary
+    
+    # Urutan fitur sesuai yang dilatih
+    feature_order = [
+        'ax1', 'ay1', 'az1', 'gx1', 'gy1', 'gz1',
+        'ax2', 'ay2', 'az2', 'gx2', 'gy2', 'gz2',
+        'pressure_hpa', 'altitude_m'
+    ]
+    df = pd.DataFrame([features], columns=feature_order)
+    
+    # Buat array 1D
+    # X = np.array([features[f] for f in feature_order]).reshape(1, -1)
+    
+    # Scaling
+    scaler = load_scaler()
+    X_scaled = scaler.transform(df)
+    
+    # Prediksi
+    model = load_model()
+    pred = model.predict(X_scaled)[0]          # 0, 1, 2
+    proba = model.predict_proba(X_scaled)[0]   # array 3 probabilitas
+    
+    mapping = {0: "Salah", 1: "Benar", 2: "Berdiri"}
+    label = mapping.get(pred, "Tidak diketahui")
+    
+    return jsonify({
+        "prediction": int(pred),
+        "label": label,
+        "probabilities": proba.tolist()
+    })    
+
+@app.route("/model_input", methods=["GET"])
+def show_model_input():
+    """
+    Menampilkan data yang telah diformat sesuai kebutuhan model.
+    Tidak melakukan prediksi, hanya menampilkan hasil olahan data.
+    Parameter query string:
+        - id (optional): file_id untuk filter dataUser/
+        - format (optional): 'json' atau 'html' (default json)
+    """
+    file_id = request.args.get("id")
+    sanitized_id = sanitize_file_id(file_id)
+    output_format = request.args.get("format", "json").lower()
+    
+    result = get_latest_model_input(file_id=sanitized_id)
+    
+    if output_format == "html":
+        # Tampilkan dalam halaman HTML sederhana
+        from flask import render_template_string
+        html_template = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Data Input Model (Tanpa Prediksi)</title>
+            <style>
+                body { font-family: monospace; margin: 2em; }
+                pre { background: #f4f4f4; padding: 1em; border-radius: 5px; }
+                .success { color: green; }
+                .error { color: red; }
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+            </style>
+        </head>
+        <body>
+            <h1>Data Siap Model (14 Fitur)</h1>
+            {% if result.success %}
+                <p class="success">✅ {{ result.message }}</p>
+                <h2>Fitur yang akan diberikan ke model:</h2>
+                <table>
+                    <tr><th>Fitur</th><th>Nilai</th></tr>
+                    {% for key, value in result.data.items() %}
+                    <tr><td>{{ key }}</td><td>{{ value }}</td></tr>
+                    {% endfor %}
+                </table>
+                <h2>Metadata Sinkronisasi:</h2>
+                <pre>{{ result.raw_sources | tojson(indent=2) }}</pre>
+            {% else %}
+                <p class="error">❌ {{ result.message }}</p>
+            {% endif %}
+            <hr>
+            <p><small>Gunakan parameter <code>?format=json</code> untuk mendapatkan JSON mentah.</small></p>
+        </body>
+        </html>
+        """
+        return render_template_string(html_template, result=result)
+    else:
+        # Default JSON response
+        return jsonify({
+            "status": "success" if result["success"] else "error",
+            "message": result["message"],
+            "model_input_data": result.get("data"),
+            "alignment_info": result.get("raw_sources")
+        }), 200 if result["success"] else 404
 
 # --- Route: Dashboard ---
 @app.route("/dashboard")

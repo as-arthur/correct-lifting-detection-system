@@ -7,10 +7,10 @@
 #include <LittleFS.h>
 
 // ---------- CONFIG ----------
-#define WIFI_SSID "Unknown Device"
-#define WIFI_PASS "22222222"
+#define WIFI_SSID "realme" //"Unknown Device"
+#define WIFI_PASS "11111111" //"22222222"
 
-#define SERVER_HOST "10.219.55.166"
+#define SERVER_HOST "10.158.250.27"
 #define SERVER_PORT 5000
 #define SERVER_PATH "/data"
 
