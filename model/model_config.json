@@ -1,0 +1,7 @@
+{
+    "confidence_threshold": 0.2,
+    "buzzer_duration": 1.5,
+    "prediction_interval_ms": 200,
+    "buzzer_enabled": true,
+    "sensor_stale_timeout_ms": 5000
+}

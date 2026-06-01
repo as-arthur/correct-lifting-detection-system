@@ -16,6 +16,7 @@
                 SISTEM DETEKSI POSISI ANGKAT BARANG TUBUH BELAKANG SAAT MENGANGKAT BEBAN BERBASIS INTERNET OF THINGS MENGGUNAKAN RANDOM FOREST
             </h1>
             <p>Real-time Monitoring untuk Mencegah Musculoskeletal Disorders</p>
+            <a href="/settings" target="_blank" class="btn-link" style="margin-left: -1500px;"> ⚙️ Pengaturan Model</a>
         </div>
 
         <!-- Error Message Display -->
@@ -279,23 +280,40 @@
                 const resp = await fetch(url);
                 if (!resp.ok) throw new Error('Prediction API error');
                 const data = await resp.json();
-                let predText = data.label;
-                // Update elemen HTML
-                document.getElementById('latestPrediction').innerHTML = predText;
-                lastPrediction = predText;
-
-                // Ubah teks prediksi
+                
                 const predElem = document.getElementById('latestPrediction');
-                predElem.innerText = data.label;
-
-                // Ubah warna CARD (bukan hanya teks)
                 const cardElem = document.getElementById('predictionCard');
-                // Hapus semua class prediksi sebelumnya
-                cardElem.classList.remove('prediction-salah', 'prediction-benar', 'prediction-berdiri');
-                // Tambah class sesuai prediksi
-                if (data.label === 'Salah') cardElem.classList.add('prediction-salah');
-                else if (data.label === 'Benar') cardElem.classList.add('prediction-benar');
-                else if (data.label === 'Berdiri') cardElem.classList.add('prediction-berdiri');
+                
+                // Jika tidak ada data atau error
+                if (data.label === "Tidak ada data" || data.prediction === -1) {
+                    predElem.innerText = "⏳ Menunggu data...";
+                    cardElem.classList.remove('prediction-salah', 'prediction-benar', 'prediction-berdiri', 'prediction-waiting');
+                    cardElem.classList.add('prediction-waiting');
+                    return;
+                }
+                
+                // Tampilkan label dan confidence (jika tersedia)
+                let displayText = data.label;
+                if (data.confidence !== undefined && typeof data.confidence === 'number') {
+                    const confidencePercent = (data.confidence * 100).toFixed(1);
+                    displayText = `${data.label} (${confidencePercent}%)`;
+                }
+                predElem.innerText = displayText;
+                
+                // Update warna card berdasarkan label (dan confidence threshold)
+                cardElem.classList.remove('prediction-salah', 'prediction-benar', 'prediction-berdiri', 'prediction-waiting');
+                if (data.label === 'Salah') {
+                    cardElem.classList.add('prediction-salah');
+                } else if (data.label === 'Benar') {
+                    cardElem.classList.add('prediction-benar');
+                } else if (data.label === 'Berdiri') {
+                    cardElem.classList.add('prediction-berdiri');
+                } else if (data.label === 'Tidak yakin') {
+                    // Tambahkan class khusus untuk "Tidak yakin" (warna kuning/oranye)
+                    cardElem.classList.add('prediction-uncertain');
+                } else {
+                    cardElem.classList.add('prediction-waiting');
+                }
             } catch (e) {
                 console.error('Prediction error:', e);
                 document.getElementById('latestPrediction').innerHTML = 'Error';
@@ -331,9 +349,140 @@
             if (window.predictionIntervalHandle) clearInterval(window.predictionIntervalHandle);
             window.predictionIntervalHandle = setInterval(fetchPrediction, predictionInterval);
 
+            window.addEventListener('message', function(event) {
+                if (event.data.type === 'updatePredictionInterval' && typeof event.data.interval === 'number') {
+                    predictionInterval = event.data.interval;
+                    // restart interval prediksi
+                    if (window.predictionIntervalHandle) clearInterval(window.predictionIntervalHandle);
+                    window.predictionIntervalHandle = setInterval(fetchPrediction, predictionInterval);
+                    console.log('Prediction interval updated to', predictionInterval, 'ms');
+                }
+            });
+        }
+
+        async function loadPredictionInterval() {
+            try {
+                const resp = await fetch('/api/settings');
+                const config = await resp.json();
+                predictionInterval = config.prediction_interval_ms || 600;
+                if (window.predictionIntervalHandle) clearInterval(window.predictionIntervalHandle);
+                window.predictionIntervalHandle = setInterval(fetchPrediction, predictionInterval);
+            } catch(e) { console.warn(e); }
         }
 
         document.addEventListener('DOMContentLoaded', startPoll);
+
+        
     </script>
+    <script>
+        // 1. INISIALISASI & CEK FILE ID
+        //const fileId = "{{ file_id }}";
+        console.log("🚀 [INIT] Aplikasi SmartPose Dimulai.");
+        console.log("🔍 [INIT] File ID dari server:", fileId ? `'${fileId}'` : "KOSONG! (Ini bisa jadi penyebab data tidak muncul)");
+
+        if (!fileId) {
+            console.warn("⚠️ [WARNING] Halaman ini tidak memiliki parameter ?id=... di URL. Pastikan ESP32 dan Web membuka ID yang sama.");
+        }
+
+        // Fungsi untuk update UI (Sesuaikan dengan ID elemen HTML Anda)
+        function updateUI(latestData, predictData) {
+            console.log("🎨 [UI] Memulai update tampilan...");
+            
+            // Update Status Koneksi
+            const connStatus = document.getElementById('connection-status'); // Pastikan ID ini ada di HTML
+            if (connStatus) {
+                if (latestData && (latestData.mpu1?.length > 0 || latestData.mpu2?.length > 0)) {
+                    connStatus.innerText = "Connected";
+                    connStatus.style.color = "green";
+                    console.log("✅ [UI] Status Koneksi: Connected");
+                } else {
+                    connStatus.innerText = "Disconnected (No Data)";
+                    connStatus.style.color = "red";
+                    console.log("❌ [UI] Status Koneksi: Disconnected (Data kosong dari server)");
+                }
+            }
+
+            // Update Prediksi
+            const predLabel = document.getElementById('latest-prediction'); // Pastikan ID ini ada di HTML
+            if (predLabel && predictData) {
+                predLabel.innerText = predictData.label || "Menunggu...";
+                console.log("🎯 [UI] Label Prediksi diupdate ke:", predictData.label);
+            } else if (predLabel) {
+                predLabel.innerText = "Menunggu data...";
+            }
+
+            // Update BME280
+            if (latestData && latestData.bme && latestData.bme.length > 0) {
+                const latestBme = latestData.bme[latestData.bme.length - 1];
+                console.log("🌡️ [UI] Data BME Terbaru:", latestBme);
+                // document.getElementById('pressure').innerText = latestBme.pressure_hpa;
+                // document.getElementById('altitude').innerText = latestBme.altitude_m;
+            }
+        }
+
+        // 2. FUNGSI FETCH DATA
+        async function fetchData() {
+            console.log("--------------------------------------------------");
+            console.log("🔄 [FETCH] Memulai siklus pengambilan data...");
+
+            let latestData = null;
+            let predictData = null;
+
+            // A. Fetch /latest
+            try {
+                const latestUrl = `/latest?id=${fileId}`;
+                console.log("📡 [FETCH /latest] Mengirim request ke:", latestUrl);
+                const resLatest = await fetch(latestUrl);
+                console.log("📥 [FETCH /latest] Status Response:", resLatest.status);
+                
+                if (resLatest.ok) {
+                    latestData = await resLatest.json();
+                    console.log("📦 [FETCH /latest] Data Diterima:", latestData);
+                    
+                    if (latestData.mpu1?.length === 0 && latestData.mpu2?.length === 0 && latestData.bme?.length === 0) {
+                        console.warn("⚠️ [ANALISIS] Server membalas dengan array kosong. Pastikan ESP32 mengirim 'file_id' yang sama persis dengan yang ada di URL web!");
+                    }
+                } else {
+                    console.error("❌ [FETCH /latest] Gagal dengan status:", resLatest.status);
+                }
+            } catch (err) {
+                console.error("🔥 [FETCH /latest] EXCEPTION / ERROR JARINGAN:", err);
+            }
+
+            // B. Fetch /predict
+            try {
+                const predictUrl = `/predict?id=${fileId}`;
+                console.log("🧠 [FETCH /predict] Mengirim request ke:", predictUrl);
+                const resPredict = await fetch(predictUrl);
+                console.log("📥 [FETCH /predict] Status Response:", resPredict.status);
+                
+                if (resPredict.ok) {
+                    predictData = await resPredict.json();
+                    console.log("🎯 [FETCH /predict] Hasil Prediksi:", predictData);
+                    
+                    if (predictData.error === "No recent sensor data") {
+                        console.error("🚨 [ANALISIS PENTING] Server tidak menemukan data sensor baru dalam 5 detik terakhir untuk file_id ini!");
+                        console.error("💡 [SOLUSI] Cek apakah ESP32 mengirim 'epoch_ms' (UNIX Timestamp) yang benar, bukan uptime. Cek juga kesamaan 'file_id'.");
+                    }
+                } else {
+                    console.error("❌ [FETCH /predict] Gagal dengan status:", resPredict.status);
+                }
+            } catch (err) {
+                console.error("🔥 [FETCH /predict] EXCEPTION / ERROR JARINGAN:", err);
+            }
+
+            // C. Update UI
+            updateUI(latestData, predictData);
+
+            console.log("⏳ [FETCH] Siklus selesai. Menunggu 1 detik sebelum fetch berikutnya...");
+            setTimeout(fetchData, 1000); // Loop setiap 1 detik
+        }
+
+        // 3. JALANKAN SAAT HALAMAN DIMUAT
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("🟢 [DOM] Halaman selesai dimuat. Menjalankan fetchData()...");
+            fetchData();
+        });
+    </script>    
 </body>
 </html>

@@ -9,10 +9,10 @@
 #include <LittleFS.h>
 
 // ---------- CONFIG ----------
-#define WIFI_SSID "Unknown Device" //"realme" 
-#define WIFI_PASS "22222222" //"11111111"
+#define WIFI_SSID "realme" //"Unknown Device" //"realme" 
+#define WIFI_PASS "11111111" //"22222222" //"11111111"
 
-#define SERVER_HOST "10.213.165.166"
+#define SERVER_HOST "10.215.136.27" //"172.31.107.166" "10.215.136.27"
 #define SERVER_PORT 5000
 #define SERVER_PATH "/data"
 
@@ -182,6 +182,7 @@ void sendToServer(uint8_t id, const String &datetime, unsigned long epoch_ms, un
   payload += ",\"gx\":" + String(gx_dps, 3);
   payload += ",\"gy\":" + String(gy_dps, 3);
   payload += ",\"gz\":" + String(gz_dps, 3);
+  payload += ",\"esp_ip\":\"" + WiFi.localIP().toString() + "\"";
   payload += "}";
 
   String full_url = "http://" + String(SERVER_HOST) + ":" + String(SERVER_PORT) + String(SERVER_PATH);
@@ -267,7 +268,7 @@ void setup() {
 #endif
 
   // I2C (use safer pins D3 = SDA, D1 = SCL)
-  Wire.begin(D2, D1);
+  Wire.begin(D5, D6);
 
   if (I2C_SCAN_ON_BOOT) i2cScanner();
 

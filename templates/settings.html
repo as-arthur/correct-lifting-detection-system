@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pengaturan Model - SmartPose</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<div class="container">
+    <h1>⚙️ Pengaturan Model</h1>
+    <p>Atur parameter yang mempengaruhi prediksi realtime.</p>
+    
+    <div id="statusMsg" class="status"></div>
+    
+    <form id="settingsForm">
+        <div class="form-group">
+            <label>Confidence Threshold (0.0 - 1.0)</label>
+            <input type="number" step="0.05" id="confidence_threshold" name="confidence_threshold" min="0" max="1">
+            <div class="help-text">Probabilitas minimum agar prediksi dianggap valid. Di bawah nilai ini akan ditampilkan "Tidak yakin".</div>
+        </div>
+        
+        <div class="form-group">
+            <label>Durasi Buzzer (detik)</label>
+            <input type="number" step="0.1" id="buzzer_duration" name="buzzer_duration" min="0.1" max="5">
+            <div class="help-text">Berapa lama buzzer menyala saat postur "Salah" terdeteksi.</div>
+        </div>
+        
+        <div class="form-group">
+            <label>Interval Prediksi Frontend (ms)</label>
+            <input type="number" step="100" id="prediction_interval_ms" name="prediction_interval_ms" min="200" max="5000">
+            <div class="help-text">Seberapa sering halaman meminta prediksi baru (milidetik).</div>
+        </div>
+        
+        <div class="form-group">
+            <label>Batas Kadaluarsa Sensor (ms)</label>
+            <input type="number" step="500" id="sensor_stale_timeout_ms" name="sensor_stale_timeout_ms" min="1000" max="30000">
+            <div class="help-text">Jika tidak ada data sensor baru dalam rentang ini, prediksi akan menampilkan "Tidak ada data".</div>
+        </div>
+        
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="buzzer_enabled" name="buzzer_enabled">
+                Aktifkan Buzzer saat postur Salah
+            </label>
+        </div>
+        
+        <button type="submit">💾 Simpan Pengaturan</button>
+    </form>
+    <div class="nav-link">
+        <a href="/">← Kembali ke Dashboard Realtime</a>
+    </div>
+</div>
+
+<script>
+    // Load current settings
+    async function loadSettings() {
+        const resp = await fetch('/api/settings');
+        const config = await resp.json();
+        const confidencePercent = (data.confidence * 100).toFixed(1);
+        predElem.innerText = `${data.label} (${confidencePercent}%)`;
+        document.getElementById('confidence_threshold').value = config.confidence_threshold;
+        document.getElementById('buzzer_duration').value = config.buzzer_duration;
+        document.getElementById('prediction_interval_ms').value = config.prediction_interval_ms;
+        document.getElementById('sensor_stale_timeout_ms').value = config.sensor_stale_timeout_ms;
+        document.getElementById('buzzer_enabled').checked = config.buzzer_enabled;
+    }
+    
+    document.getElementById('settingsForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const formData = {
+            confidence_threshold: parseFloat(document.getElementById('confidence_threshold').value),
+            buzzer_duration: parseFloat(document.getElementById('buzzer_duration').value),
+            prediction_interval_ms: parseInt(document.getElementById('prediction_interval_ms').value),
+            sensor_stale_timeout_ms: parseInt(document.getElementById('sensor_stale_timeout_ms').value),
+            buzzer_enabled: document.getElementById('buzzer_enabled').checked
+        };
+        
+        const resp = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+        const result = await resp.json();
+        const statusDiv = document.getElementById('statusMsg');
+        if (resp.ok && result.status === 'ok') {
+            statusDiv.textContent = '✅ Pengaturan berhasil disimpan!';
+            statusDiv.className = 'status success';
+            // Jika interval prediksi berubah, beritahu halaman utama
+            if (window.opener && !window.opener.closed) {
+                window.opener.postMessage({ type: 'updatePredictionInterval', interval: formData.prediction_interval_ms }, '*');
+            }
+        } else {
+            statusDiv.textContent = '❌ Gagal menyimpan: ' + (result.error || 'Unknown error');
+            statusDiv.className = 'status error';
+        }
+        setTimeout(() => statusDiv.className = 'status', 3000);
+    });
+    
+    loadSettings();
+</script>
+</body>
+</html>

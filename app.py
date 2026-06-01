@@ -5,14 +5,133 @@ import csv
 import math
 import datetime
 import joblib
+import requests
+import threading
 import numpy as np
 import pandas as pd
+import warnings
+import json
+from collections import deque, defaultdict
+from scipy.stats import kurtosis, skew
+from scipy.signal import welch
 from collections import deque, defaultdict
 from flask import Flask, request, send_file, abort, jsonify, render_template, redirect, url_for
 from sklearn.preprocessing import StandardScaler
 
-MODEL_PATH = "model\\random_forest_model.pkl"
-SCALER_PATH = "model\\scaler.pkl"
+MODEL_PATH = "model/random_forest_model.pkl"
+SCALER_PATH = "model/scaler.pkl"
+CONFIG_FILE = "model/model_config.json"
+
+with open('model/feature_names.json', 'r') as f:
+    EXPECTED_FEATURES = json.load(f)
+
+
+DEFAULT_CONFIG = {
+    "confidence_threshold": 0.2,      # minimal probabilitas untuk dianggap valid
+    "buzzer_duration": 1.5,           # detik buzzer menyala
+    "prediction_interval_ms": 300,    # interval prediksi dari frontend (ms)
+    "buzzer_enabled": True,           # nyalakan buzzer saat prediksi "Salah"
+    "sensor_stale_timeout_ms": 5000   # batas waktu data sensor kadaluarsa (ms)
+}
+
+# Buffer global untuk menampung 20 data terakhir per file_id/sesi
+data_buffers = defaultdict(lambda: deque(maxlen=20))
+FS = 50.0 # Sesuaikan dengan frekuensi sampling ESP32 Anda (cek di Notebook)
+
+# === FUNGSI EKSTRAKSI FITUR (SALIN DARI NOTEBOOK) ===
+def time_features_1d(x, fs):
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    if n < 2: return {k: 0.0 for k in ['zero_crossing','sma','rms','autocorr_lag1','peak_to_peak','kurtosis','skewness']}
+    std_val = np.std(x)
+    is_constant = std_val < 1e-10
+    zero_cross = np.sum(np.diff(np.sign(x)) != 0) / n
+    sma = np.sum(np.abs(x)) / n
+    rms = np.sqrt(np.mean(x**2))
+    if is_constant or n < 3 or np.std(x[:-1]) < 1e-10 or np.std(x[1:]) < 1e-10: autocorr = 0.0
+    else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            try:
+                cc = np.corrcoef(x[:-1], x[1:])
+                val = cc[0, 1]
+                autocorr = 0.0 if (np.isnan(val) or np.isinf(val)) else float(val)
+            except Exception: autocorr = 0.0
+    ptp = float(np.max(x) - np.min(x))
+    if is_constant: kur, skew_val = 0.0, 0.0
+    else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            kur, skew_val = float(kurtosis(x, fisher=True, bias=False)), float(skew(x, bias=False))
+    return {'zero_crossing': zero_cross, 'sma': sma, 'rms': rms, 'autocorr_lag1': autocorr, 'peak_to_peak': ptp, 'kurtosis': kur, 'skewness': skew_val}
+
+def freq_features_1d(x, fs):
+    x = np.asarray(x, dtype=float)
+    n = len(x)
+    if n < 4: return {'dominant_freq': 0.0, 'dominant_power': 0.0, 'spectral_entropy': 0.0, 'band_0.00_0.83hz': 0.0, 'band_0.83_1.67hz': 0.0, 'band_1.67_2.50hz': 0.0}
+    nperseg = min(256, n)
+    f, Pxx = welch(x, fs=fs, nperseg=nperseg, noverlap=nperseg//2)
+    Pxx = np.maximum(Pxx, 1e-12)
+    idx_max = np.argmax(Pxx)
+    dom_freq, dom_power = f[idx_max], Pxx[idx_max]
+    p_norm = Pxx / np.sum(Pxx)
+    spectral_entropy = -np.sum(p_norm * np.log2(p_norm + 1e-12))
+    bands = {'band_0.00_0.83hz': (0.0, 0.83), 'band_0.83_1.67hz': (0.83, 1.67), 'band_1.67_2.50hz': (1.67, 2.50)}
+    band_energies = {label: float(np.sum(Pxx[(f >= fmin) & (f < fmax)])) for label, (fmin, fmax) in bands.items()}
+    return {'dominant_freq': dom_freq, 'dominant_power': dom_power, 'spectral_entropy': spectral_entropy, **band_energies}
+
+def extract_window_features(df_window):
+    feat_dict = {}
+    sensor_cols = ['ax1','ay1','az1','gx1','gy1','gz1','ax2','ay2','az2','gx2','gy2','gz2','pressure_hpa','altitude_m']
+    for col in sensor_cols:
+        if col in df_window.columns:
+            values = df_window[col].values
+            for k, v in time_features_1d(values, FS).items(): feat_dict[f'{col}_{k}'] = v
+            for k, v in freq_features_1d(values, FS).items(): feat_dict[f'{col}_{k}'] = v
+            
+    # Fitur Interaksi & Magnitudo (Sama persis dengan Notebook)
+    if all(c in df_window.columns for c in ['ax1','ax2']):
+        diff = df_window['ax1'].values - df_window['ax2'].values
+        feat_dict['diff_ax'], feat_dict['diff_ax_std'] = np.mean(diff), np.std(diff)
+    # ... (Lakukan hal yang sama untuk diff_ay, diff_az, diff_gx, diff_gy, diff_gz)
+    
+    if all(c in df_window.columns for c in ['ax1','ay1','az1']):
+        mag1 = np.sqrt(df_window['ax1']**2 + df_window['ay1']**2 + df_window['az1']**2)
+        feat_dict['acc_mag1_mean'], feat_dict['acc_mag1_std'] = np.mean(mag1), np.std(mag1)
+    # ... (Lakukan hal yang sama untuk acc_mag2, gyro_mag1, gyro_mag2)
+
+    # Hapus fitur yang dibuang saat training
+    feat_dict.pop('pressure_hpa_zero_crossing', None)
+    feat_dict.pop('altitude_m_zero_crossing', None)
+    
+    return feat_dict
+
+def load_config():
+    """Muat konfigurasi dari file JSON, jika tidak ada buat default"""
+    if not os.path.exists(CONFIG_FILE):
+        save_config(DEFAULT_CONFIG)
+        return DEFAULT_CONFIG.copy()
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            config = json.load(f)
+            # pastikan semua key default ada
+            for key, val in DEFAULT_CONFIG.items():
+                if key not in config:
+                    config[key] = val
+            return config
+    except Exception as e:
+        print(f"Error loading config: {e}")
+        return DEFAULT_CONFIG.copy()
+
+def save_config(config):
+    """Simpan konfigurasi ke file JSON"""
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=4)
+        return True
+    except Exception as e:
+        print(f"Error saving config: {e}")
+        return False
 
 # Cache model dan scaler
 _rf_model = None
@@ -35,6 +154,27 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
+esp_ip_map = {}
+
+def send_buzzer_command(file_id, turn_on=True):
+    """Kirim perintah ke ESP untuk menyalakan/mematikan buzzer"""
+    ip = esp_ip_map.get(file_id)
+    if not ip:
+        print(f"[WARNING] Tidak tahu IP ESP untuk file_id {file_id}")
+        return False
+    state = "1" if turn_on else "0"
+    url = f"http://{ip}/buzzer?state={state}"
+    try:
+        resp = requests.get(url, timeout=1)
+        if resp.status_code == 200:
+            print(f"[OK] Buzzer {file_id} -> {'ON' if turn_on else 'OFF'}")
+            return True
+        else:
+            print(f"[ERROR] Gagal, status {resp.status_code}")
+            return False
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        return False
 
 # sanitize file id: hanya huruf, angka, underscore, dash; sisanya diganti underscore
 def sanitize_file_id(s):
@@ -474,47 +614,176 @@ def index():
     error_message = request.args.get("error", "")
     return render_template('index.html', file_id=file_id, error_message=error_message)
 
+@app.route('/api/settings', methods=['GET', 'POST'])
+def api_settings():
+    if request.method == 'GET':
+        config = load_config()
+        return jsonify(config)
+    else:
+        # POST: update config
+        new_config = request.get_json()
+        if not new_config:
+            return jsonify({"error": "Invalid JSON"}), 400
+        current = load_config()
+        # update hanya field yang diizinkan
+        for key in DEFAULT_CONFIG.keys():
+            if key in new_config:
+                current[key] = new_config[key]
+        if save_config(current):
+            return jsonify({"status": "ok", "config": current})
+        else:
+            return jsonify({"error": "Failed to save config"}), 500
+        
+@app.route('/settings')
+def settings_page():
+    return render_template('settings.html')
+
 @app.route("/predict", methods=["GET"])
 def predict_realtime():
-    """
-    Endpoint untuk prediksi realtime berdasarkan data sensor terbaru.
-    Output: { "prediction": int, "label": str, "probabilities": list }
-    """
     file_id = request.args.get("id")
     sanitized_id = sanitize_file_id(file_id)
+    config = load_config()
     
-    # Ambil data terbaru yang sudah diformat (14 fitur)
-    result = get_latest_model_input(file_id=sanitized_id)
-    features = result["data"]  # dictionary
-    
-    # Urutan fitur sesuai yang dilatih
-    feature_order = [
-        'ax1', 'ay1', 'az1', 'gx1', 'gy1', 'gz1',
-        'ax2', 'ay2', 'az2', 'gx2', 'gy2', 'gz2',
-        'pressure_hpa', 'altitude_m'
-    ]
-    df = pd.DataFrame([features], columns=feature_order)
-    
-    # Buat array 1D
-    # X = np.array([features[f] for f in feature_order]).reshape(1, -1)
-    
-    # Scaling
-    scaler = load_scaler()
-    X_scaled = scaler.transform(df)
-    
-    # Prediksi
-    model = load_model()
-    pred = model.predict(X_scaled)[0]          # 0, 1, 2
-    proba = model.predict_proba(X_scaled)[0]   # array 3 probabilitas
-    
-    mapping = {0: "Salah", 1: "Benar", 2: "Berdiri"}
-    label = mapping.get(pred, "Tidak diketahui")
-    
-    return jsonify({
-        "prediction": int(pred),
-        "label": label,
-        "probabilities": proba.tolist()
-    })    
+    # --- Cek ketersediaan data sensor baru ---
+    imu_rows_check = read_latest_rows_by_prefix("imu", file_id=sanitized_id, max_lines=5)
+    latest_epoch_ms = 0
+
+    for row in imu_rows_check:
+        try:
+            ep = int(row.get("epoch_ms", 0))
+            if ep < 1500000000000: 
+                dt_str = str(row.get("datetime", "")).strip()
+                if dt_str:
+                    if '.' in dt_str:
+                        base, ms = dt_str.split('.')
+                        dt_obj = datetime.datetime.strptime(base, "%Y-%m-%d %H:%M:%S")
+                        ep = int(dt_obj.timestamp() * 1000) + int(ms.ljust(3, '0')[:3])
+                    else:
+                        dt_obj = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                        ep = int(dt_obj.timestamp() * 1000)
+            if ep > latest_epoch_ms:
+                latest_epoch_ms = ep
+        except Exception:
+            pass
+
+    current_time_ms = int(datetime.datetime.now().timestamp() * 1000)
+    stale_limit = config.get("sensor_stale_timeout_ms", 5000)
+
+    if latest_epoch_ms == 0 or (current_time_ms - latest_epoch_ms) > stale_limit:
+        return jsonify({
+            "prediction": -1,
+            "label": "Tidak ada data",
+            "probabilities": [],
+            "confidence": 0.0,
+            "error": "No recent sensor data",
+            "debug_info": f"Server Time: {current_time_ms}, Data Time: {latest_epoch_ms}"
+        }), 200
+
+    # --- Ambil data WINDOW untuk ekstraksi fitur ---
+    try:
+        # Ambil lebih banyak baris untuk membentuk window (misal 300 baris)
+        imu_rows = read_latest_rows_by_prefix("imu", file_id=sanitized_id, max_lines=300)
+        bmp_rows = read_latest_rows_by_prefix("bmp", file_id=sanitized_id, max_lines=50)
+        
+        mpu1_list = [r for r in imu_rows if str(r.get("mpu_id", "")).strip() == "1"]
+        mpu2_list = [r for r in imu_rows if str(r.get("mpu_id", "")).strip() == "2"]
+        
+        # Samakan panjang data MPU1 dan MPU2
+        min_len = min(len(mpu1_list), len(mpu2_list))
+        
+        if min_len < 10:
+            return jsonify({
+                "prediction": -1,
+                "label": "Mengumpulkan data...",
+                "probabilities": [],
+                "confidence": 0.0,
+                "error": "Not enough window data"
+            }), 200
+
+        mpu1_window = mpu1_list[-min_len:]
+        mpu2_window = mpu2_list[-min_len:]
+        
+        def to_f(val):
+            try: return float(val) if val not in (None, "", " ") else 0.0
+            except: return 0.0
+
+        # Buat DataFrame Window
+        df_window = pd.DataFrame({
+            'ax1': [to_f(r.get('ax')) for r in mpu1_window],
+            'ay1': [to_f(r.get('ay')) for r in mpu1_window],
+            'az1': [to_f(r.get('az')) for r in mpu1_window],
+            'gx1': [to_f(r.get('gx')) for r in mpu1_window],
+            'gy1': [to_f(r.get('gy')) for r in mpu1_window],
+            'gz1': [to_f(r.get('gz')) for r in mpu1_window],
+            'ax2': [to_f(r.get('ax')) for r in mpu2_window],
+            'ay2': [to_f(r.get('ay')) for r in mpu2_window],
+            'az2': [to_f(r.get('az')) for r in mpu2_window],
+            'gx2': [to_f(r.get('gx')) for r in mpu2_window],
+            'gy2': [to_f(r.get('gy')) for r in mpu2_window],
+            'gz2': [to_f(r.get('gz')) for r in mpu2_window],
+        })
+        
+        # Ambil data BME terbaru dan terapkan ke seluruh window
+        bmp_row = bmp_rows[-1] if bmp_rows else None
+        p_val = to_f(bmp_row.get('pressure_hpa')) if bmp_row else 0.0
+        a_val = to_f(bmp_row.get('altitude_m')) if bmp_row else 0.0
+        
+        df_window['pressure_hpa'] = p_val
+        df_window['altitude_m'] = a_val
+
+        # 1. Ekstraksi Fitur Jendela (Sesuai Notebook)
+        features_dict = extract_window_features(df_window)
+        
+        # 2. Sesuaikan urutan dan nama kolom dengan EXPECTED_FEATURES
+        final_features = {k: features_dict.get(k, 0.0) for k in EXPECTED_FEATURES}
+        df_final = pd.DataFrame([final_features], columns=EXPECTED_FEATURES)
+
+        # 3. Prediksi Model
+        scaler = load_scaler()
+        model = load_model()
+        
+        X_scaled = scaler.transform(df_final)
+        proba = model.predict_proba(X_scaled)[0]   
+        pred_idx = int(model.predict(X_scaled)[0])
+        confidence = float(max(proba))
+
+        mapping = {0: "Salah", 1: "Benar", 2: "Berdiri"}
+        label = mapping.get(pred_idx, "Tidak diketahui")
+
+        threshold = config.get("confidence_threshold", 0.2)
+        if confidence < threshold:
+            label = "Tidak yakin"
+            pred_idx = -2
+
+        if label == "Salah" and sanitized_id and config.get("buzzer_enabled", True):
+            duration = config.get("buzzer_duration", 1.5)
+            send_buzzer_command(sanitized_id, turn_on=True)
+            threading.Timer(duration, lambda: send_buzzer_command(sanitized_id, turn_on=False)).start()
+
+        return jsonify({
+            "prediction": pred_idx,
+            "label": label,
+            "probabilities": proba.tolist(),
+            "confidence": confidence,
+            "threshold_used": threshold
+        })
+        
+    except Exception as e:
+        import traceback
+        error_detail = str(e)
+        print("=== PREDICTION ERROR ===")
+        traceback.print_exc()
+        print("========================")
+        
+        return jsonify({
+            "prediction": -1,
+            "label": "Error Model",
+            "probabilities": [],
+            "confidence": 0.0,
+            "error": error_detail,
+            "debug_info": "Gagal memproses model. Cek terminal Flask untuk detail."
+        }), 200
+
 
 @app.route("/model_input", methods=["GET"])
 def show_model_input():
@@ -644,6 +913,11 @@ def upload_data():
 def handle_mpu_data(data):
     raw_id = data.get("file_id") if isinstance(data, dict) else None
     file_id = sanitize_file_id(raw_id)
+
+    if file_id and "esp_ip" in data:
+        esp_ip_map[file_id] = data["esp_ip"]
+        print(f"[INFO] ESP IP for {file_id}: {data['esp_ip']}")
+
     filepath = get_today_filepath(prefix="imu", file_id=file_id)      # asumsi fungsi ini sudah ada
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     file_exists = os.path.isfile(filepath)
@@ -663,6 +937,7 @@ def handle_mpu_data(data):
             gx = data.get("gx") or ""
             gy = data.get("gy") or ""
             gz = data.get("gz") or ""
+            
 
             f.write(f"{now},{epoch_ms},{ts_millis},{mpu_id},{ax},{ay},{az},{gx},{gy},{gz}\n")
     except Exception as e:
@@ -852,4 +1127,5 @@ def download_data():
 
 
 if __name__ == "__main__":
+    
     app.run(host="0.0.0.0", port=5000, debug=True)
