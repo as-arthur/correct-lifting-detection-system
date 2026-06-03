@@ -1,5 +1,6 @@
 /* static/style.css */
 
+/* ===== RESET & BASE ===== */
 * {
     margin: 0;
     padding: 0;
@@ -208,10 +209,10 @@ button:active,
 
 /* ===== STATUS INFO ===== */
 .status-info {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 15px;
-    margin-bottom: 30px;
+    display: flex;
+    gap: 20px;
+    align-items: stretch;
+    margin-bottom: 20px;
 }
 
 .status-card {
@@ -237,7 +238,6 @@ button:active,
     color: #333;
 }
 
-<<<<<<< HEAD
 /* Kolom vertikal kanan */
 .status-vertical {
     flex: 1;
@@ -267,8 +267,6 @@ button:active,
     font-weight: 500;
 }
 
-=======
->>>>>>> parent of 575cbc6 (feat: Add Flask dashboard for real-time sensor data prediction)
 /* ===== MAIN CONTENT ===== */
 .main-content {
     display: flex;
@@ -571,7 +569,6 @@ button:active,
     flex-wrap: wrap;
 }
 
-<<<<<<< HEAD
 .prediction-uncertain {
     background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
     border-left: 6px solid #f39c12;
@@ -1046,8 +1043,6 @@ footer {
     font-size: 2rem;
 }
 
-=======
->>>>>>> parent of 575cbc6 (feat: Add Flask dashboard for real-time sensor data prediction)
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1024px) {
     .charts-container,
@@ -1112,6 +1107,21 @@ footer {
 
     .header p {
         font-size: 0.95rem;
+    }
+
+    /* Responsive untuk modul prediksi */
+    .prediction {
+        font-size: 2rem;
+        padding: 18px;
+    }
+
+    .stat-number {
+        font-size: 1.6rem;
+    }
+
+    .chart-container,
+    .recent-list {
+        padding: 16px;
     }
 }
 
