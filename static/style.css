@@ -237,7 +237,6 @@ button:active,
     color: #333;
 }
 
-<<<<<<< HEAD
 /* Kolom vertikal kanan */
 .status-vertical {
     flex: 1;
@@ -267,8 +266,6 @@ button:active,
     font-weight: 500;
 }
 
-=======
->>>>>>> parent of 575cbc6 (feat: Add Flask dashboard for real-time sensor data prediction)
 /* ===== MAIN CONTENT ===== */
 .main-content {
     display: flex;
@@ -571,7 +568,6 @@ button:active,
     flex-wrap: wrap;
 }
 
-<<<<<<< HEAD
 .prediction-uncertain {
     background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
     border-left: 6px solid #f39c12;
@@ -1046,8 +1042,6 @@ footer {
     font-size: 2rem;
 }
 
-=======
->>>>>>> parent of 575cbc6 (feat: Add Flask dashboard for real-time sensor data prediction)
 /* ===== RESPONSIVE ===== */
 @media (max-width: 1024px) {
     .charts-container,
