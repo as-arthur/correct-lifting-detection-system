@@ -169,6 +169,25 @@ datetime,epoch_ms,ts_millis,sensor,temperature_c,pressure_hpa,altitude_m
 ...
 ```
 
+## Struktur Folder dan Alur Data
+
+Berikut adalah alur pengolahan data dari sensor hingga siap digunakan untuk pelatihan model:
+
+*   **`dataUser/`** : **Data Mentah (Raw Data)**. Folder ini berisi data langsung dari sensor MPU6050 (akselerasi & giroskop) dan BMP280 (tekanan, suhu, ketinggian) yang dikirimkan oleh ESP8266 ke server Flask. Data disimpan dalam file CSV per subjek dan per hari, misalnya `imu_<subjek>_<tanggal>.csv` dan `bmp_<subjek>_<tanggal>.csv`[reference:0]. Ini adalah titik awal sebelum dilakukan pemrosesan lebih lanjut.
+
+*   **`gabunganSensor/`** : **Data Gabungan Antar Sensor**. Pada tahap ini, data dari tiga sensor (MPU1, MPU2, dan BMP280) yang memiliki stempel waktu (`timestamp`) berbeda akan disinkronkan dan digabungkan menjadi satu file. Proses ini penting untuk memastikan bahwa data dari semua sensor merepresentasikan momen yang sama saat seorang operator mengangkat beban, sehingga analisis postur dapat dilakukan secara akurat.
+
+*   **`dataLabel/`** : **Data Berlabel**. Ini adalah data dari folder `gabunganSensor/` yang telah melalui proses pelabelan. Pelabelan bisa berupa kategori seperti `angkat benar` atau `angkat salah`, berdasarkan pada nilai sensor atau validasi manual. Data dalam folder ini sudah siap untuk digunakan sebagai *dataset* dalam proses pelatihan model *machine learning* (misalnya untuk deteksi postur secara otomatis).
+
+## Struktur Output Data (di dalam folder `dataUser`)
+
+File CSV untuk sensor MPU (disimpan di server) memiliki format nama: `imu_<subjek>_<tanggal>.csv`. Contoh isi file:
+... (contoh isi)
+File CSV untuk sensor BMP280 disimpan dengan format nama: `bmp_<subjek>_<tanggal>.csv`. Contoh isi file:
+... (contoh isi)
+
+Data mentah di folder `dataUser` ini kemudian akan diproses ke tahap berikutnya (penggabungan dan pelabelan) yang dijelaskan pada bagian **Struktur Folder dan Alur Data**.
+
 ## Catatan
 
 - Pastikan tegangan yang diberikan ke sensor adalah `3.3V` (jangan `5V`) untuk mencegah kerusakan.
