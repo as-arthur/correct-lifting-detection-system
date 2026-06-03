@@ -11,124 +11,201 @@
 </head>
 <body>
     <div class="container">
-        <h1>Live Posture Monitoring</h1>
-        <div class="status-card">
-            <h3>Current Prediction</h3>
-            <div id="currentPrediction" class="prediction">--</div>
-            <div id="timestamp" class="timestamp" style="margin-top: 10px;"></div>
+        <div class="header">
+            <h2>User Dashboard - Lifting Position Analysis</h2>
         </div>
 
-        <div class="stats-grid">
-            <div class="stat-box">
-                <div class="stat-label">Last 10s - Good (Benar)</div>
-                <div class="stat-number" id="countBenar10s">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Last 10s - Bad (Salah)</div>
-                <div class="stat-number" id="countSalah10s">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Last 10s - Stand (Berdiri)</div>
-                <div class="stat-number" id="countBerdiri10s">0</div>
-            </div>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-box">
-                <div class="stat-label">Total Good (Benar)</div>
-                <div class="stat-number" id="totalBenar">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Total Bad (Salah)</div>
-                <div class="stat-number" id="totalSalah">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Total Stand (Berdiri)</div>
-                <div class="stat-number" id="totalBerdiri">0</div>
+        {% if data %}
+        <!-- Top Section: Key Metrics -->
+        <div class="top-section">
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h4>Bad Posture Duration</h4>
+                    <div class="metric-value">{{ "%.2f"|format(data.durations.total_bad) }} s</div>
+                </div>
+                <div class="metric-card">
+                    <h4>Good Posture Duration</h4>
+                    <div class="metric-value">{{ "%.2f"|format(data.durations.total_good) }} s</div>
+                </div>
+                <div class="metric-card">
+                    <h4>Average Interval</h4>
+                    <div class="metric-value">{{ "%.2f"|format(data.intervals.avg) }} s</div>
+                </div>
+                <div class="metric-card">
+                    <h4>Total Predictions</h4>
+                    <div class="metric-value">{{ data.overview.total }}</div>
+                </div>
             </div>
         </div>
 
-        <div class="chart-container">
-            <h3>Prediction Distribution (Last 10 seconds)</h3>
-            <canvas id="liveChart"></canvas>
+        <!-- Overview Cards -->
+        <div class="overview-section">
+            <div class="overview-card good">
+                <h3>Good Posture</h3>
+                <p class="big-number">{{ data.overview.bagus }}</p>
+                <p class="percentage">{{ data.overview.bagus_pct }}%</p>
+                <p class="label">Avg Duration: {{ "%.2f"|format(data.durations.avg_good) }} s</p>
+            </div>
+
+            <div class="overview-card bad">
+                <h3>Bad Posture</h3>
+                <p class="big-number">{{ data.overview.jelek }}</p>
+                <p class="percentage">{{ data.overview.jelek_pct }}%</p>
+                <p class="label">Avg Duration: {{ "%.2f"|format(data.durations.avg_bad) }} s</p>
+            </div>
+
+            <div class="overview-card sensor">
+                <h3>Active Sensor</h3>
+                <p class="big-number">{{ data.overview.sensor_teraktif }}</p>
+                <p class="label">Primary sensor</p>
+            </div>
         </div>
 
-        <div class="recent-list">
-            <h3>Recent Predictions</h3>
-            <div id="recentList"></div>
+        <!-- Middle Section: Charts -->
+        <div class="middle-section">
+            <div class="charts-container">
+                <div class="chart-card">
+                    <h3>Overall Posture Distribution</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="overallChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <h3>Posture Over Time (Per 10 Seconds)</h3>
+                    <div class="chart-wrapper">
+                        <canvas id="postureOverTimeChart"></canvas>
+                    </div>
+                </div>
+            </div>
         </div>
+
+        <!-- Buzzer Triggers Section -->
+        {% if data.buzzer_triggers %}
+        <div class="buzzer-section">
+            <h3>Anomaly Alerts (Top 3)</h3>
+            <ul class="buzzer-list">
+                {% for trigger in data.buzzer_triggers %}
+                <li class="buzzer-item">
+                    <strong>{{ trigger.datetime }}</strong> - {{ trigger.note }}
+                    <br><small>MPU{{ trigger.mpu_id }}: gy={{ "%.2f"|format(trigger.gy) }} dps, az={{ "%.2f"|format(trigger.az) }} g</small>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <!-- Bottom Section: User Summary -->
+        <div class="bottom-section">
+            <h3>User Summary</h3>
+            <div class="user-info-grid">
+                <div class="info-item">
+                    <h4>User Name</h4>
+                    <div class="info-value">{{ data.user_summary.name }}</div>
+                </div>
+                <div class="info-item">
+                    <h4>Usage Duration</h4>
+                    <div class="info-value">{{ data.user_summary.duration_worn }}</div>
+                </div>
+                <div class="info-item">
+                    <h4>Last Active</h4>
+                    <div class="info-value">{{ data.user_summary.last_active }}</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Back Button -->
+        <div class="nav-links">
+            <a href="/" class="btn-link">Back to Home</a>
+        </div>
+
+        {% else %}
+        <div class="error-alert">
+            <strong>No Data Available</strong>
+            <p>Unable to load dashboard data. Please try again.</p>
+            <a href="/" class="btn-link">Back to Home</a>
+        </div>
+        {% endif %}
     </div>
 
     <script>
-        let chart;
-
-        async function fetchData() {
-            const response = await fetch('/live_data');
-            const data = await response.json();
-            if (data.error) return;
-
-            // Update current prediction
-            const pred = data.latest_prediction;
-            if (pred) {
-                const predDiv = document.getElementById('currentPrediction');
-                predDiv.textContent = pred.prediction;
-                predDiv.className = `prediction ${pred.prediction}`;
-                document.getElementById('timestamp').textContent = new Date(pred.epoch_ms).toLocaleTimeString();
-            }
-
-            // Update stats 10s
-            document.getElementById('countBenar10s').textContent = data.counts_last_10s.Benar || 0;
-            document.getElementById('countSalah10s').textContent = data.counts_last_10s.Salah || 0;
-            document.getElementById('countBerdiri10s').textContent = data.counts_last_10s.Berdiri || 0;
-
-            // Update total stats
-            document.getElementById('totalBenar').textContent = data.total_counts.Benar || 0;
-            document.getElementById('totalSalah').textContent = data.total_counts.Salah || 0;
-            document.getElementById('totalBerdiri').textContent = data.total_counts.Berdiri || 0;
-
-            // Update chart (bar chart)
-            const labels = ['Benar', 'Salah', 'Berdiri'];
-            const values = [
-                data.counts_last_10s.Benar || 0,
-                data.counts_last_10s.Salah || 0,
-                data.counts_last_10s.Berdiri || 0
-            ];
-            if (chart) {
-                chart.data.datasets[0].data = values;
-                chart.update();
-            } else {
-                const ctx = document.getElementById('liveChart').getContext('2d');
-                chart = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [{
-                            label: 'Count in last 10s',
-                            data: values,
-                            backgroundColor: ['#51cf66', '#ff6b6b', '#ffd43b'],
-                            borderRadius: 10
-                        }]
+        {% if data %}
+        // Pie Chart: Overall Posture
+        const overallCtx = document.getElementById('overallChart').getContext('2d');
+        new Chart(overallCtx, {
+            type: 'doughnut',
+            data: {
+                labels: {{ data.overall_data.labels | tojson }},
+                datasets: {{ data.overall_data.datasets | tojson }}
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'bottom',
                     },
-                    options: { responsive: true, maintainAspectRatio: true }
-                });
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.raw || 0;
+                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                const percentage = Math.round((value / total) * 100);
+                                return `${label}: ${value} (${percentage}%)`;
+                            }
+                        }
+                    }
+                }
             }
+        });
 
-            // Update recent list
-            const recentDiv = document.getElementById('recentList');
-            recentDiv.innerHTML = '';
-            (data.recent_predictions || []).slice().reverse().forEach(p => {
-                const item = document.createElement('div');
-                item.className = 'recent-item';
-                item.innerHTML = `
-                    <span>${new Date(p.epoch_ms).toLocaleTimeString()}</span>
-                    <span class="badge ${p.prediction}">${p.prediction}</span>
-                `;
-                recentDiv.appendChild(item);
-            });
-        }
-
-        setInterval(fetchData, 1000);
-        fetchData();
+        // Bar Chart: Posture Over Time
+        const postureCtx = document.getElementById('postureOverTimeChart').getContext('2d');
+        const barChartData = {{ data.posture_over_time_barchart | tojson }};
+        new Chart(postureCtx, {
+            type: 'bar',
+            data: barChartData,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time Interval (seconds)'
+                        },
+                        ticks: {
+                            maxTicksLimit: 10
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Number of Predictions'
+                        },
+                        beginAtZero: true
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.dataset.label || '';
+                                const value = context.raw || 0;
+                                return `${label}: ${value}`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        {% endif %}
     </script>
 </body>
 </html>

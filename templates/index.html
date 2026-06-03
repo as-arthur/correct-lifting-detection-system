@@ -12,9 +12,7 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>
-                SISTEM DETEKSI POSISI ANGKAT BARANG TUBUH BELAKANG SAAT MENGANGKAT BEBAN BERBASIS INTERNET OF THINGS MENGGUNAKAN RANDOM FOREST
-            </h1>
+            <h1>SmartPose - Lifting Position Detection</h1>
             <p>Real-time Monitoring untuk Mencegah Musculoskeletal Disorders</p>
             <a href="/settings" target="_blank" class="btn-link" style="margin-left: -1500px;"> ⚙️ Pengaturan Model</a>
         </div>
@@ -27,7 +25,7 @@
         {% endif %}
 
         <!-- Control Panel -->
-        <!-- <div class="control-panel">
+        <div class="control-panel">
             <div class="file-control">
                 <label>ID Baru:</label>
                 <input type="text" id="newId" placeholder="e.g., 05">
@@ -43,32 +41,52 @@
                 <button id="btnBaik" class="btn-feedback baik">Baik</button>
                 <button id="btnBuruk" class="btn-feedback buruk">Buruk</button>
             </div>
-        </div> -->
+        </div>
 
-        <!-- Status Info - Layout dua kolom -->
-        <div class="status-info">
-            <!-- Kiri: card prediksi (diperbesar) -->
-            <div class="status-card prediction-card" id="predictionCard">
-                <h2>Latest Prediction</h2>
-                <h1 id="latestPrediction" class="prediction-text">--</h1>
-            </div>
-
-            <!-- Kanan: kolom vertikal untuk Status, Tekanan, Ketinggian -->
-            <div class="status-vertical">
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Status Info (8 cards total) -->
+            <div class="status-info">
                 <div class="status-card">
-                    <h4>Status Koneksi</h4>
+                    <h4>Refresh Rate</h4>
+                    <p id="refreshRate">Menghitung...</p>
+                </div> 
+                <div class="status-card">
+                    <h4>Data Rate</h4>
+                    <p id="dataRate"></p>
+                </div>
+                {# <div class="status-card">
+                    <h4>File ID</h4>
+                    <p id="currentFileId">{{ file_id or '(default)' }}</p>
+                </div> #}
+                <div class="status-card">
+                    <h4>Status</h4>
                     <p id="connectionStatus">Disconnected</p>
                 </div>
-                <div class="status-card">
-                    <h4>Tekanan (hPa)</h4>
-                    <p id="bmePress">--</p>
-                </div>
-                <div class="status-card">
-                    <h4>Ketinggian (m)</h4>
-                    <p id="bmeAlt">--</p>
-                </div>
+                
             </div>
-        </div>
+
+            <div class="main-content">
+                <div class="status-info">
+                <!-- BME280 status cards (4 new) -->
+                    <div class="status-card">
+                        <h4>Suhu (BME)</h4>
+                        <p id="bmeTemp">--</p>
+                    </div>
+                    <div class="status-card">
+                        <h4>Kelembaban</h4>
+                        <p id="bmeHum">--</p>
+                    </div>
+                    <div class="status-card">
+                        <h4>Tekanan</h4>
+                        <p id="bmePress">--</p>
+                    </div>
+                    <div class="status-card">
+                        <h4>Ketinggian</h4>
+                        <p id="bmeAlt">--</p>
+                    </div>
+                </div>      
+            </div>          
 
             <!-- Charts Container -->
             <div class="charts-container">
@@ -126,9 +144,7 @@
         let fileId = "{{ file_id or '' }}";
         let lastFetchTime = null;
         let lastProcessedEpochMs = 0;
-        let lastPrediction = "";
-        let predictionInterval = 600; 
-        //document.getElementById('dataRate').innerText = 'Menghitung...';
+        document.getElementById('dataRate').innerText = 'Menghitung...';
 
         // Initialize Charts (sama seperti sebelumnya)
         const accCtx = document.getElementById('accChart').getContext('2d');
@@ -180,11 +196,11 @@
 
         async function fetchLatest() {
             const now = Date.now();
-            //if (lastFetchTime !== null) {
-              //  const deltaMs = now - lastFetchTime;
-               // const hz = 1000 / deltaMs;
-                //document.getElementById('refreshRate').innerHTML = `${hz.toFixed(1)} Hz <span style="font-size:0.8rem;">(${deltaMs} ms)</span>`;
-            //}
+            if (lastFetchTime !== null) {
+                const deltaMs = now - lastFetchTime;
+                const hz = 1000 / deltaMs;
+                document.getElementById('refreshRate').innerHTML = `${hz.toFixed(1)} Hz <span style="font-size:0.8rem;">(${deltaMs} ms)</span>`;
+            }
             lastFetchTime = now;
             const url = '/latest' + (fileId ? ('?id=' + encodeURIComponent(fileId) + '&n=300') : '?n=300');
             try {
@@ -205,13 +221,13 @@
                 // Update BME status cards dengan data terbaru (ambil elemen terakhir)
                 if (bmeData.length > 0) {
                     const latest = bmeData[bmeData.length - 1];
-                   // document.getElementById('bmeTemp').innerHTML = (latest.temperature_c != null ? latest.temperature_c.toFixed(2) + ' °C' : '--');
-                   // document.getElementById('bmeHum').innerHTML = (latest.humidity_percent != null ? latest.humidity_percent.toFixed(1) + ' %' : '--');
+                    document.getElementById('bmeTemp').innerHTML = (latest.temperature_c != null ? latest.temperature_c.toFixed(2) + ' °C' : '--');
+                    document.getElementById('bmeHum').innerHTML = (latest.humidity_percent != null ? latest.humidity_percent.toFixed(1) + ' %' : '--');
                     document.getElementById('bmePress').innerHTML = (latest.pressure_hpa != null ? latest.pressure_hpa.toFixed(2) + ' hPa' : '--');
                     document.getElementById('bmeAlt').innerHTML = (latest.altitude_m != null ? latest.altitude_m.toFixed(2) + ' m' : '--');
                 } else {
-                  //  document.getElementById('bmeTemp').innerHTML = '--';
-                  //  document.getElementById('bmeHum').innerHTML = '--';
+                    document.getElementById('bmeTemp').innerHTML = '--';
+                    document.getElementById('bmeHum').innerHTML = '--';
                     document.getElementById('bmePress').innerHTML = '--';
                     document.getElementById('bmeAlt').innerHTML = '--';
                 }
@@ -226,20 +242,20 @@
                     let maxEpoch = allData[allData.length - 1].epoch_ms;
                     if (lastProcessedEpochMs === 0) {
                         lastProcessedEpochMs = maxEpoch;
-                        //document.getElementById('dataRate').innerHTML = `Memulai...`;
+                        document.getElementById('dataRate').innerHTML = `Memulai...`;
                     } else {
                         let newDataCount = allData.filter(d => d.epoch_ms > lastProcessedEpochMs).length;
                         if (newDataCount > 0) {
                             let deltaSeconds = (maxEpoch - lastProcessedEpochMs) / 1000.0;
                             let rate = newDataCount / deltaSeconds;
-                            //document.getElementById('dataRate').innerHTML = `${rate.toFixed(1)} <span style="font-size:0.8rem;">sampel/dtk</span>`;
+                            document.getElementById('dataRate').innerHTML = `${rate.toFixed(1)} <span style="font-size:0.8rem;">sampel/dtk</span>`;
                             lastProcessedEpochMs = maxEpoch;
                         } else {
-                            //document.getElementById('dataRate').innerHTML = `0 <span style="font-size:0.8rem;">sampel/dtk</span>`;
+                            document.getElementById('dataRate').innerHTML = `0 <span style="font-size:0.8rem;">sampel/dtk</span>`;
                         }
                     }
                 } else {
-                   // document.getElementById('dataRate').innerHTML = `Tidak ada data MPU`;
+                    document.getElementById('dataRate').innerHTML = `Tidak ada data MPU`;
                 }
 
                 function buildSeries(arr) {
@@ -274,6 +290,7 @@
             }
         }
 
+<<<<<<< HEAD
         async function fetchPrediction() {
             const url = '/predict' + (fileId ? ('?id=' + encodeURIComponent(fileId)) : '');
             try {
@@ -320,6 +337,8 @@
             }
         }
 
+=======
+>>>>>>> parent of 575cbc6 (feat: Add Flask dashboard for real-time sensor data prediction)
         function updateTable(tblId, arr) {
             const tbody = document.querySelector(tblId + ' tbody');
             tbody.innerHTML = '';
@@ -344,6 +363,7 @@
             if (pollHandle) clearInterval(pollHandle);
             fetchLatest();
             pollHandle = setInterval(fetchLatest, refreshInterval);
+<<<<<<< HEAD
 
                //INterval untuk fetch prediksi (lebih jarang dari data mentah) 
             if (window.predictionIntervalHandle) clearInterval(window.predictionIntervalHandle);
@@ -368,6 +388,8 @@
                 if (window.predictionIntervalHandle) clearInterval(window.predictionIntervalHandle);
                 window.predictionIntervalHandle = setInterval(fetchPrediction, predictionInterval);
             } catch(e) { console.warn(e); }
+=======
+>>>>>>> parent of 575cbc6 (feat: Add Flask dashboard for real-time sensor data prediction)
         }
 
         document.addEventListener('DOMContentLoaded', startPoll);

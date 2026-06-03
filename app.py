@@ -148,6 +148,9 @@ def load_scaler():
     if _scaler is None:
         _scaler = joblib.load(SCALER_PATH)
     return _scaler
+from collections import deque, defaultdict
+from flask import Flask, request, send_file, abort, jsonify, render_template, redirect, url_for
+
 
 SAVE_DIR = r"dataUser"
 os.makedirs(SAVE_DIR, exist_ok=True)
@@ -474,138 +477,6 @@ def get_dashboard_data(file_path):
         'user_summary': user_summary
     }
 
-
-
-def get_latest_model_input(file_id=None):
-    """
-    Membaca data terbaru dari file IMU (MPU1 & MPU2) dan BMP,
-    lalu mengembalikan dictionary berisi 14 fitur yang diperlukan model.
-    Jika data sensor tidak tersedia, nilai fitur diisi 0.
-    
-    Returns:
-        dict: selalu berisi 'success': True dan 'data' (14 fitur)
-    """
-    # Helper functions
-    def to_float(val):
-        try:
-            return float(val) if val not in (None, "") else 0.0
-        except:
-            return 0.0
-    
-    def to_int(val):
-        try:
-            return int(val) if val not in (None, "") else 0
-        except:
-            return 0
-    
-    # Inisialisasi semua fitur dengan 0
-    features = {
-        "ax1": 0.0, "ay1": 0.0, "az1": 0.0,
-        "gx1": 0.0, "gy1": 0.0, "gz1": 0.0,
-        "ax2": 0.0, "ay2": 0.0, "az2": 0.0,
-        "gx2": 0.0, "gy2": 0.0, "gz2": 0.0,
-        "pressure_hpa": 0.0,
-        "altitude_m": 0.0
-    }
-    
-    raw_sources = {
-        "mpu1_time_ms": None,
-        "mpu2_time_ms": None,
-        "bmp_time_ms": None,
-        "mpu1_datetime": None,
-        "mpu2_datetime": None,
-        "bmp_datetime": None
-    }
-    
-    # 1. Baca data IMU dan BMP
-    imu_rows = read_latest_rows_by_prefix("imu", file_id=file_id, max_lines=200)
-    bmp_rows = read_latest_rows_by_prefix("bmp", file_id=file_id, max_lines=50)
-    
-    # 2. Pisahkan MPU1 dan MPU2
-    mpu1_list = []
-    mpu2_list = []
-    for row in imu_rows:
-        mpu_id = str(row.get("mpu_id", "")).strip()
-        if mpu_id == "1":
-            mpu1_list.append(row)
-        elif mpu_id == "2":
-            mpu2_list.append(row)
-    
-    # 3. Ambil data MPU1 dan MPU2 terbaru (tanpa sinkronisasi wajib)
-    mpu1_row = None
-    mpu2_row = None
-    
-    if mpu1_list:
-        mpu1_row = mpu1_list[-1]  # ambil terbaru
-        raw_sources["mpu1_time_ms"] = mpu1_row.get("epoch_ms")
-        raw_sources["mpu1_datetime"] = mpu1_row.get("datetime")
-    
-    if mpu2_list:
-        mpu2_row = mpu2_list[-1]
-        raw_sources["mpu2_time_ms"] = mpu2_row.get("epoch_ms")
-        raw_sources["mpu2_datetime"] = mpu2_row.get("datetime")
-    
-    # Jika salah satu MPU tidak ada, yang lainnya tetap dipakai (nilai 0 untuk yang hilang)
-    # Tapi kita tetap berusaha mencari pasangan yang sinkron jika keduanya ada
-    if mpu1_row and mpu2_row:
-        # Coba cari pasangan sinkron (selisih <= 100ms)
-        matched = None
-        for row2 in reversed(mpu2_list):
-            ts2 = to_int(row2.get("epoch_ms"))
-            if ts2 == 0:
-                continue
-            best_match = None
-            best_diff = float('inf')
-            for row1 in reversed(mpu1_list):
-                ts1 = to_int(row1.get("epoch_ms"))
-                if ts1 == 0:
-                    continue
-                diff = abs(ts1 - ts2)
-                if diff < best_diff and diff <= 100:
-                    best_diff = diff
-                    best_match = row1
-            if best_match:
-                matched = (best_match, row2)
-                break
-        if matched:
-            mpu1_row, mpu2_row = matched
-            raw_sources["mpu1_time_ms"] = mpu1_row.get("epoch_ms")
-            raw_sources["mpu2_time_ms"] = mpu2_row.get("epoch_ms")
-    
-    # 4. Isi fitur dari MPU1 (jika ada)
-    if mpu1_row:
-        features["ax1"] = to_float(mpu1_row.get("ax"))
-        features["ay1"] = to_float(mpu1_row.get("ay"))
-        features["az1"] = to_float(mpu1_row.get("az"))
-        features["gx1"] = to_float(mpu1_row.get("gx"))
-        features["gy1"] = to_float(mpu1_row.get("gy"))
-        features["gz1"] = to_float(mpu1_row.get("gz"))
-    
-    # 5. Isi fitur dari MPU2 (jika ada)
-    if mpu2_row:
-        features["ax2"] = to_float(mpu2_row.get("ax"))
-        features["ay2"] = to_float(mpu2_row.get("ay"))
-        features["az2"] = to_float(mpu2_row.get("az"))
-        features["gx2"] = to_float(mpu2_row.get("gx"))
-        features["gy2"] = to_float(mpu2_row.get("gy"))
-        features["gz2"] = to_float(mpu2_row.get("gz"))
-    
-    # 6. Data BMP: cari yang terbaru (tidak perlu sinkron ketat)
-    bmp_row = None
-    if bmp_rows:
-        bmp_row = bmp_rows[-1]  # ambil terbaru
-        raw_sources["bmp_time_ms"] = bmp_row.get("epoch_ms")
-        raw_sources["bmp_datetime"] = bmp_row.get("datetime")
-        features["pressure_hpa"] = to_float(bmp_row.get("pressure_hpa"))
-        features["altitude_m"] = to_float(bmp_row.get("altitude_m"))
-    
-    # 7. Kembalikan hasil (selalu success)
-    return {
-        "success": True,
-        "data": features,
-        "message": "Data berhasil disusun (nilai 0 untuk sensor yang tidak tersedia).",
-        "raw_sources": raw_sources
-    }
 
 # --- Route: Home Page dengan Visualisasi Real-time ---
 @app.route("/")
