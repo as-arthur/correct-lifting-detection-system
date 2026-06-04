@@ -241,6 +241,41 @@ def read_csv_data(file_path):
     print(f"[DEBUG] Number of data collected: {len(data)}")
     return data
 
+def add_rolling_features(X_df, n=3):
+    """
+    Rolling pendek HANYA pada fitur kunci.
+    N=3 di 5Hz = 0.6 detik delay.
+    Hanya 10 fitur tambahan, bukan semua kolom.
+    """
+    X = X_df.copy()
+
+    # Pilih hanya fitur yang paling relevan untuk rolling
+    key_cols = [c for c in ['acc_mag1','acc_mag2','gyro_mag1','gyro_mag2',
+                             'roll1','pitch1','diff_roll','diff_pitch']
+                if c in X.columns]
+
+    for col in key_cols:
+        # Ensure column is numeric before rolling operation
+        X[col] = pd.to_numeric(X[col], errors='coerce').fillna(0)
+        X[f'{col}_rm{n}'] = (X[col].rolling(n, min_periods=1)
+                                   .mean())
+        X[f'{col}_rs{n}'] = (X[col].rolling(n, min_periods=1)
+                                   .std()
+                                   .fillna(0))
+    return X
+
+def add_rolling_per_subject(X_df, y_df, groups_arr, n=3):
+    """Rolling dihitung ulang per subjek agar tidak melewati batas."""
+    parts_X, parts_y = [], []
+    for subj in np.unique(groups_arr):
+        mask = groups_arr == subj
+        X_s = X_df[mask].copy()
+        X_s = add_rolling_features(X_s, n=n)
+        parts_X.append(X_s)
+        parts_y.append(y_df[mask])
+    return pd.concat(parts_X).reset_index(drop=True),
+           pd.concat(parts_y).reset_index(drop=True)    
+
 # --- Fungsi: Menghitung statistik untuk dashboard ---
 def get_dashboard_data(file_path):
     raw_data = read_csv_data(file_path)
