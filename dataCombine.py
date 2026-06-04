@@ -261,7 +261,7 @@ def process_subject(bmp_file, imu_file, subject_id, nama, output_dir,
     print(f"Tersimpan: {out_path} (baris: {len(final)})")
     return final
 
-def process_all_files(input_dir, output_dir, start_id=14,
+def process_all_files(input_dir, output_dir, start_id=23,
                       imu_tolerance_ms=50, bme_tolerance_ms=500):
     """
     Memindai folder input, mencari pasangan file bmp_* dan imu_*,
@@ -307,7 +307,7 @@ def process_all_files(input_dir, output_dir, start_id=14,
 if __name__ == "__main__":
     # Gunakan raw string (r'...') atau double backslash untuk path Windows
     process_all_files(
-        input_dir=r'D:\Semester_7\Skripsian\bachelor-last-project\gabunganSensor\Fathur',
-        output_dir=r'D:\Semester_7\Skripsian\bachelor-last-project\gabunganSensor',
-        start_id=14
+        input_dir=r'D:\\Semester_7\\Skripsian\\bachelor-last-project\\data\\new',
+        output_dir=r'D:\\Semester_7\\Skripsian\\bachelor-last-project\\gabunganSensor',
+        start_id=23
     )
