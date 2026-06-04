@@ -139,6 +139,73 @@ http://<ip_laptop>:5000
 Ctrl + C
 ```
 
+##  Struktur Folder
+
+```text
+correct-lifting-detection-system/
+├── MPU6050/                     # Kode untuk ESP8266 pertama (MPU6050 + BMP280)
+│   └── MPU6050.ino
+├── bmp280/                      # Kode untuk ESP8266 kedua (BMP280 saja)
+│   └── bmp280.ino
+├── dataUser/                    # 📥 Data mentah dari sensor (CSV)
+│   ├── imu_*.csv                # Data MPU6050 (akselerasi & giroskop)
+│   └── bmp_*.csv                # Data BMP280 (suhu, tekanan, ketinggian)
+├── gabunganSensor/              # 🔗 Data hasil sinkronisasi dan penggabungan sensor
+├── dataLabel/                   # 🏷️ Data berlabel siap untuk pelatihan model
+├── model/                       # 🤖 Model machine learning yang sudah dilatih
+│   ├── random_forest_model.pkl
+│   ├── scaler.pkl
+│   ├── feature_names.json
+│   └── model_config.json
+├── templates/                   # 🎨 Template HTML untuk dashboard web
+│   ├── index.html
+│   ├── dashboard.html
+│   ├── latest.html
+│   └── settings.html
+├── static/                      # 🎨 File CSS untuk styling
+│   └── style.css
+├── data/                        # 📊 Data CSV tambahan untuk pengujian
+│   └── bmp_*.csv / imu_*.csv
+├── app.py                       # 🚀 Aplikasi utama server Flask
+├── dataCombine.py               # 🔄 Script untuk menggabungkan data antar sensor
+├── README.md
+├── .gitignore
+├── Skripsi_Fathur.docx          # 📄 Dokumentasi skripsi dalam Word
+├── Skripsi_Fathur.pdf           # 📄 Dokumentasi skripsi dalam PDF
+└── catatan.txt                  # Catatan atau dokumentasi singkat
+```
+
+---
+
+##  Penjelasan Folder Data
+
+### `dataUser/`
+
+Data mentah yang dikirim dari ESP8266 ke server Flask.
+Disimpan dalam file CSV dengan format:
+
+* `imu_*.csv` → Data MPU6050 (akselerasi & giroskop)
+* `bmp_*.csv` → Data BMP280 (suhu, tekanan, dan ketinggian)
+
+### `gabunganSensor/`
+
+Berisi hasil penggabungan data dari tiga sensor:
+
+* MPU1
+* MPU2
+* BMP280
+
+Data telah disinkronkan berdasarkan waktu (`timestamp`) sehingga siap digunakan untuk analisis lanjutan.
+
+### `dataLabel/`
+
+Berisi data dari folder `gabunganSensor/` yang telah diberi label aktivitas atau kategori tertentu untuk kebutuhan:
+
+* Pelatihan model machine learning
+* Evaluasi model
+* Prediksi gerakan lifting
+
+
 ## Struktur Output Data
 
 File CSV untuk sensor MPU (disimpan di server) memiliki format nama:
