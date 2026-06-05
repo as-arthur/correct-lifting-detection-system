@@ -273,8 +273,7 @@ def add_rolling_per_subject(X_df, y_df, groups_arr, n=3):
         X_s = add_rolling_features(X_s, n=n)
         parts_X.append(X_s)
         parts_y.append(y_df[mask])
-    return pd.concat(parts_X).reset_index(drop=True),
-           pd.concat(parts_y).reset_index(drop=True)    
+    return pd.concat(parts_X).reset_index(drop=True), pd.concat(parts_y).reset_index(drop=True)    
 
 # --- Fungsi: Menghitung statistik untuk dashboard ---
 def get_dashboard_data(file_path):
