@@ -3,18 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SmartPose - Lifting Position Detection</title>
+    <title>Lifting Position Detection</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
+
+
 <body>
     <div class="container">
         <!-- Header -->
         <div class="header">
-            <h1>SmartPose - Lifting Position Detection</h1>
+            <h1>Sistem Deteksi Posisi Angkat Beban Menggunakan IoT dengan Random Forest</h1>
             <p>Real-time Monitoring untuk Mencegah Musculoskeletal Disorders</p>
-            <a href="/settings" target="_blank" class="btn-link" style="margin-left: -1500px;"> ⚙️ Pengaturan Model</a>
+            <!---<a href="/settings" target="_blank" class="btn-link" style="margin-left: -1000px;"> ⚙️ Pengaturan Model</a> --->
         </div>
 
         <!-- Error Message Display -->
@@ -24,335 +26,450 @@
         </div>
         {% endif %}
 
-        <!-- Control Panel -->
-        <div class="control-panel">
-            <div class="file-control">
-                <label>ID Baru:</label>
-                <input type="text" id="newId" placeholder="e.g., 05">
-                <label>Nama Baru:</label>
-                <input type="text" id="newName" placeholder="e.g., Fadli">
-                <button onclick="renameFile()">Rename File</button>
+        <!-- Status Info - Layout 3:1 (Prediksi : History) -->
+        <div class="status-info">
+
+            <div class="settings-card">
+                <h3>Confidence Thresholds</h3>
+                <div class="threshold-setting">
+                    <label>Posisi Benar = 
+                        <span id="threshErgoValue">0.70</span>
+                    </label>
+                    <input type="range" id="threshErgo" min="0.10" max="0.95" step="0.01" value="0.70">
+                    <small>Minimal keyakinan untuk menyatakan posisi <strong>Benar</strong></small>
+                </div>
+                <div class="threshold-setting">
+                    <label>Posisi Salah = 
+                        <span id="threshNonValue">0.60</span>
+                    </label>
+                    <input type="range" id="threshNon" min="0.10" max="0.95" step="0.01" value="0.60">
+                    <small>Minimal keyakinan untuk menyatakan posisi <strong>Salah</strong></small>
+                </div>
+                <button id="resetThresholds" class="btn-reset">Reset ke Default</button>
+                <!-- <p class="info-note">* Jika kedua ambang tidak terpenuhi, hasil = "tidak pasti"</p> -->
             </div>
-            <div class="download-section">
-                <h3>Download Data</h3>
-                <button id="downloadBtn" class="btn-download">Download CSV</button>
+
+            <!-- Kiri: card prediksi (3 bagian) -->
+            <div class="status-card prediction-card" id="predictionCard">
+                <h2>Latest Prediction</h2>
+                <h1 id="latestPrediction" class="prediction-text">--</h1>
+                <p id="confidence" class="confidence-text">Confidence: --%</p>
             </div>
-            <div class="feedback-buttons">
-                <button id="btnBaik" class="btn-feedback baik">Baik</button>
-                <button id="btnBuruk" class="btn-feedback buruk">Buruk</button>
+
+            <!-- Kanan: History Log Prediksi (1 bagian) -->
+            <div class="history-card">
+                <h3>Prediction Log</h3>
+                <ul class="history-log" id="predictionHistoryList">
+                    <li class="empty-history">Belum ada prediksi</li>
+                </ul>
+            </div>
+
+            
+        </div>
+
+        <div class="bme-charts-row">
+            <div class="bme-mini-card">
+                <h4>Tekanan Udara <span class="bme-current-value" id="latestPressure">-- hPa</span></h4>
+                <canvas id="pressureChart" class="bme-mini-canvas"></canvas>
+            </div>
+            <div class="bme-mini-card">
+                <h4>Ketinggian <span class="bme-current-value" id="latestAltitude">-- m</span></h4>
+                <canvas id="altitudeChart" class="bme-mini-canvas"></canvas>
             </div>
         </div>
 
-        <!-- Main Content -->
-        <div class="main-content">
-            <!-- Status Info (8 cards total) -->
-            <div class="status-info">
-                <div class="status-card">
-                    <h4>Refresh Rate</h4>
-                    <p id="refreshRate">Menghitung...</p>
-                </div> 
-                <div class="status-card">
-                    <h4>Data Rate</h4>
-                    <p id="dataRate"></p>
-                </div>
-                {# <div class="status-card">
-                    <h4>File ID</h4>
-                    <p id="currentFileId">{{ file_id or '(default)' }}</p>
-                </div> #}
-                <div class="status-card">
-                    <h4>Status</h4>
-                    <p id="connectionStatus">Disconnected</p>
-                </div>
-                
+        <!-- Charts Container -->
+        <div class="charts-container">
+            <div class="chart-card">
+                <h3>Acceleration Magnitude (|a|) — MPU1 & MPU2</h3>
+                <canvas id="accChart"></canvas>
             </div>
-
-            <div class="main-content">
-                <div class="status-info">
-                <!-- BME280 status cards (4 new) -->
-                    <div class="status-card">
-                        <h4>Suhu (BME)</h4>
-                        <p id="bmeTemp">--</p>
-                    </div>
-                    <div class="status-card">
-                        <h4>Kelembaban</h4>
-                        <p id="bmeHum">--</p>
-                    </div>
-                    <div class="status-card">
-                        <h4>Tekanan</h4>
-                        <p id="bmePress">--</p>
-                    </div>
-                    <div class="status-card">
-                        <h4>Ketinggian</h4>
-                        <p id="bmeAlt">--</p>
-                    </div>
-                </div>      
-            </div>          
-
-            <!-- Charts Container -->
-            <div class="charts-container">
-                <div class="chart-card">
-                    <h3>Acceleration Magnitude (|a|) — MPU1 & MPU2</h3>
-                    <canvas id="accChart"></canvas>
-                </div>
-                <div class="chart-card">
-                    <h3>Gyroscope Magnitude (|ω|) — MPU1 & MPU2</h3>
-                    <canvas id="gyroChart"></canvas>
-                </div>
+            <div class="chart-card">
+                <h3>Gyroscope Magnitude (|ω|) — MPU1 & MPU2</h3>
+                <canvas id="gyroChart"></canvas>
             </div>
+        </div>
 
-            <!-- Tables Container: MPU1, MPU2, dan BME280 latest -->
-            <div class="tables-container">
-                <div class="table-card">
-                    <h3>Latest MPU1 Data (10 rows)</h3>
-                    <table id="tbl1">
-                        <thead>
-                            <tr><th>DateTime</th><th>ax</th><th>ay</th><th>az</th><th>gx</th><th>gy</th><th>gz</th></tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-                <div class="table-card">
-                    <h3>Latest MPU2 Data (10 rows)</h3>
-                    <table id="tbl2">
-                        <thead>
-                            <tr><th>DateTime</th><th>ax</th><th>ay</th><th>az</th><th>gx</th><th>gy</th><th>gz</th></tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-                <!-- BME280 latest data table -->
-                <div class="table-card">
-                    <h3>Latest BME280 Data (10 rows)</h3>
-                    <table id="tblBme">
-                        <thead>
-                            <tr><th>DateTime</th><th>Temp (°C)</th><th>Hum (%)</th><th>Pressure (hPa)</th><th>Altitude (m)</th></tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
+        <!-- Tables Container: MPU1, MPU2, dan BME280 latest -->
+        <div class="tables-container">
+            <div class="table-card">
+                <h3>Latest MPU1 Data (10 rows)</h3>
+                <table id="tbl1">
+                    <thead>
+                        <tr><th>DateTime</th><th>ax</th><th>ay</th><th>az</th><th>gx</th><th>gy</th><th>gz</th></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
             </div>
+            <div class="table-card">
+                <h3>Latest MPU2 Data (10 rows)</h3>
+                <table id="tbl2">
+                    <thead>
+                        <tr><th>DateTime</th><th>ax</th><th>ay</th><th>az</th><th>gx</th><th>gy</th><th>gz</th></tr>
+                    </thead>    
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
 
-            <!-- Navigation Links -->
-            <div class="nav-links">
-                <a href="/dashboard" class="btn-link">View Dashboard</a>
-            </div>
+        <!-- Navigation Links -->
+        <div class="nav-links">
+            <a href="/dashboard" class="btn-link">View Dashboard</a>
         </div>
     </div>
 
+
     <script>
+        // ==========================================
+        // GLOBAL ERROR HANDLER (Menangkap SEMUA kegagalan JS)
+        // ==========================================
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+            console.error('🚨 [GLOBAL JS ERROR]', msg, 'at line:', lineNo, 'col:', columnNo, error);
+            return false;
+        };
+        window.onunhandledrejection = function(event) {
+            console.error('🚨 [UNHANDLED PROMISE REJECTION]', event.reason);
+        };
+
+        console.log('🚀 [INIT] Script index.html mulai dimuat...');
+
         const refreshInterval = 300; // ms
         let fileId = "{{ file_id or '' }}";
         let lastFetchTime = null;
+        let latestSensorData = { mpu1: [], mpu2: [], bme: [] };
         let lastProcessedEpochMs = 0;
-        document.getElementById('dataRate').innerText = 'Menghitung...';
+        let predictionInterval = 600;
+        let currentThreshErgo = 0.70;
+        let currentThreshNon = 0.60;
 
-        // Initialize Charts (sama seperti sebelumnya)
-        const accCtx = document.getElementById('accChart').getContext('2d');
-        const gyroCtx = document.getElementById('gyroChart').getContext('2d');
+        // Deklarasi variabel chart global (awalnya null, diisi di initCharts)
+        let pressureChart = null;
+        let altitudeChart = null;
+        let accChart = null;
+        let gyroChart = null;
 
-        const accChart = new Chart(accCtx, {
-            type: 'line',
-            data: { labels: [], datasets: [
-                { label: 'MPU1 |a| (g)', data: [], borderColor: 'rgb(75,192,192)', backgroundColor: 'rgba(75,192,192,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true },
-                { label: 'MPU2 |a| (g)', data: [], borderColor: 'rgb(255,159,64)', backgroundColor: 'rgba(255,159,64,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true }
-            ] },
-            options: { responsive: true, maintainAspectRatio: true, animation: false, scales: { x: { display: true, title: { display: true, text: 'Time' } }, y: { display: true, title: { display: true, text: 'Acceleration (g)' }, min: 0 } }, plugins: { legend: { display: true, position: 'top' }, filler: { propagate: true } } }
-        });
-
-        const gyroChart = new Chart(gyroCtx, {
-            type: 'line',
-            data: { labels: [], datasets: [
-                { label: 'MPU1 |ω| (dps)', data: [], borderColor: 'rgb(153,102,255)', backgroundColor: 'rgba(153,102,255,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true },
-                { label: 'MPU2 |ω| (dps)', data: [], borderColor: 'rgb(255,99,132)', backgroundColor: 'rgba(255,99,132,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true }
-            ] },
-            options: { responsive: true, maintainAspectRatio: true, animation: false, scales: { x: { display: true, title: { display: true, text: 'Time' } }, y: { display: true, title: { display: true, text: 'Gyroscope (dps)' }, min: 0 } }, plugins: { legend: { display: true, position: 'top' }, filler: { propagate: true } } }
-        });
-
-
-        function updateFileId() {
-            fileId = document.getElementById('fileId').value.trim();
-            document.getElementById('currentFileId').innerText = fileId || '(default)';
-            fetchLatest();
+        function loadThresholds() {
+            const savedErgo = localStorage.getItem('thresh_ergo');
+            const savedNon = localStorage.getItem('thresh_non');
+            console.log('🔧 [THRESHOLDS] Memuat dari localStorage:', { savedErgo, savedNon });
+            
+            if (savedErgo !== null) currentThreshErgo = parseFloat(savedErgo);
+            if (savedNon !== null) currentThreshNon = parseFloat(savedNon);
+            
+            document.getElementById('threshErgo').value = currentThreshErgo;
+            document.getElementById('threshNon').value = currentThreshNon;
+            document.getElementById('threshErgoValue').innerText = currentThreshErgo.toFixed(2);
+            document.getElementById('threshNonValue').innerText = currentThreshNon.toFixed(2);
         }
 
-        // Fungsi untuk update tabel BME
-        function updateBmeTable(bmeArray) {
-            const tbody = document.querySelector('#tblBme tbody');
-            tbody.innerHTML = '';
-            if (!bmeArray || bmeArray.length === 0) return;
-            const lastRows = bmeArray.slice(-10).reverse();
-            for (const r of lastRows) {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${r.datetime || ''}</td>
-                    <td>${r.temperature_c != null ? r.temperature_c.toFixed(2) : '--'}</td>
-                    <td>${r.humidity_percent != null ? r.humidity_percent.toFixed(1) : '--'}</td>
-                    <td>${r.pressure_hpa != null ? r.pressure_hpa.toFixed(2) : '--'}</td>
-                    <td>${r.altitude_m != null ? r.altitude_m.toFixed(3) : '--'}</td>
-                `;
-                tbody.appendChild(tr);
+        function saveThresholds() {
+            localStorage.setItem('thresh_ergo', currentThreshErgo);
+            localStorage.setItem('thresh_non', currentThreshNon);
+        }
+
+        function initThresholdControls() {
+            const sliderErgo = document.getElementById('threshErgo');
+            const sliderNon = document.getElementById('threshNon');
+            const resetBtn = document.getElementById('resetThresholds');
+            
+            if (!sliderErgo || !sliderNon || !resetBtn) {
+                console.error('❌ [THRESHOLDS] Elemen slider atau tombol reset TIDAK DITEMUKAN di DOM!');
+                return;
+            }
+            console.log('✅ [THRESHOLDS] Elemen slider ditemukan. Memasang event listener...');
+
+            sliderErgo.addEventListener('input', (e) => {
+                currentThreshErgo = parseFloat(e.target.value);
+                document.getElementById('threshErgoValue').innerText = currentThreshErgo.toFixed(2);
+                saveThresholds();
+                fetchPrediction();
+            });
+
+            sliderNon.addEventListener('input', (e) => {
+                currentThreshNon = parseFloat(e.target.value);
+                document.getElementById('threshNonValue').innerText = currentThreshNon.toFixed(2);
+                saveThresholds();
+                fetchPrediction();
+            });
+
+            resetBtn.addEventListener('click', () => {
+                currentThreshErgo = 0.70; currentThreshNon = 0.60;
+                sliderErgo.value = currentThreshErgo; sliderNon.value = currentThreshNon;
+                document.getElementById('threshErgoValue').innerText = currentThreshErgo.toFixed(2);
+                document.getElementById('threshNonValue').innerText = currentThreshNon.toFixed(2);
+                saveThresholds();
+                fetchPrediction();
+            });
+        }
+        
+        let predictionHistory = [];
+        const MAX_HISTORY = 10;
+
+        function renderHistory() {
+            const historyList = document.getElementById('predictionHistoryList');
+            if (!historyList) {
+                console.error('❌ [HISTORY] Elemen #predictionHistoryList TIDAK DITEMUKAN!');
+                return;
+            }
+            if (predictionHistory.length === 0) {
+                historyList.innerHTML = '<li class="empty-history">Belum ada prediksi</li>';
+                return;
+            }
+            let html = '';
+            for (let i = 0; i < predictionHistory.length; i++) {
+                const entry = predictionHistory[i];
+                let color = entry.label === 'benar' ? '#2ecc71' : (entry.label === 'salah' ? '#e74c3c' : '#f39c12');
+                html += `<li>
+                    <span style="color:${color}; font-weight:bold;">${entry.label}</span>
+                    <span class="time">${entry.time}</span><br>
+                    <span class="confidence">Conf: ${entry.confidence}%</span>
+                </li>`;
+            }
+            historyList.innerHTML = html;
+        }
+
+        function addToHistory(label, confidencePercent) {
+            const timeStr = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute:'2-digit', second:'2-digit' });
+            predictionHistory.unshift({ label, confidence: confidencePercent, time: timeStr });
+            if (predictionHistory.length > MAX_HISTORY) predictionHistory.pop();
+            console.log('➕ [HISTORY] Menambah prediksi ke log:', label, confidencePercent + '%');
+            renderHistory();
+        }
+
+        // Inisialisasi Chart HANYA di sini untuk mencegah error "Canvas is already in use"
+        function initCharts() {
+            console.log('📊 [CHARTS] Memulai inisialisasi Chart.js...');
+            try {
+                if (typeof Chart === 'undefined') {
+                    console.error('⚠️ [CHARTS] Library Chart.js TIDAK TERMUAT! Grafik tidak akan muncul.');
+                    return;
+                }
+                
+                const pCtx = document.getElementById('pressureChart');
+                if (!pCtx) console.error('❌ [CHARTS] Canvas #pressureChart tidak ditemukan!');
+                if (pCtx && !pressureChart) {
+                    pressureChart = new Chart(pCtx.getContext('2d'), {
+                        type: 'line',
+                        data: { labels: [], datasets: [{ label: 'Tekanan (hPa)', data: [], borderColor: '#2c7da0', backgroundColor: 'rgba(44,125,160,0.1)', borderWidth: 2, fill: true, pointRadius: 1, tension: 0.2 }] },
+                        options: { responsive: true, maintainAspectRatio: true, animation: false, scales: { y: { title: { display: true, text: 'hPa' } } } }
+                    });
+                }
+                
+                const aCtx = document.getElementById('altitudeChart');
+                if (!aCtx) console.error('❌ [CHARTS] Canvas #altitudeChart tidak ditemukan!');
+                if (aCtx && !altitudeChart) {
+                    altitudeChart = new Chart(aCtx.getContext('2d'), {
+                        type: 'line',
+                        data: { labels: [], datasets: [{ label: 'Ketinggian (m)', data: [], borderColor: '#e9c46a', backgroundColor: 'rgba(233,196,106,0.1)', borderWidth: 2, fill: true, pointRadius: 1, tension: 0.2 }] },
+                        options: { responsive: true, maintainAspectRatio: true, animation: false, scales: { y: { title: { display: true, text: 'meter' } } } }
+                    });
+                }
+
+                const accCtx = document.getElementById('accChart');
+                if (!accCtx) console.error('❌ [CHARTS] Canvas #accChart tidak ditemukan!');
+                if (accCtx && !accChart) {
+                    accChart = new Chart(accCtx.getContext('2d'), {
+                        type: 'line',
+                        data: { labels: [], datasets: [
+                            { label: 'MPU1 |a| (g)', data: [], borderColor: 'rgb(75,192,192)', backgroundColor: 'rgba(75,192,192,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true },
+                            { label: 'MPU2 |a| (g)', data: [], borderColor: 'rgb(255,159,64)', backgroundColor: 'rgba(255,159,64,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true }
+                        ] },
+                        options: { responsive: true, maintainAspectRatio: true, animation: false, scales: { x: { display: true }, y: { display: true, min: 0 } } }
+                    });
+                }
+
+                const gCtx = document.getElementById('gyroChart');
+                if (!gCtx) console.error('❌ [CHARTS] Canvas #gyroChart tidak ditemukan!');
+                if (gCtx && !gyroChart) {
+                    gyroChart = new Chart(gCtx.getContext('2d'), {
+                        type: 'line',
+                        data: { labels: [], datasets: [
+                            { label: 'MPU1 |ω| (dps)', data: [], borderColor: 'rgb(153,102,255)', backgroundColor: 'rgba(153,102,255,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true },
+                            { label: 'MPU2 |ω| (dps)', data: [], borderColor: 'rgb(255,99,132)', backgroundColor: 'rgba(255,99,132,0.1)', borderWidth: 2, tension: 0.2, pointRadius: 0, fill: true }
+                        ] },
+                        options: { responsive: true, maintainAspectRatio: true, animation: false, scales: { x: { display: true }, y: { display: true, min: 0 } } }
+                    });
+                }
+                console.log('✅ [CHARTS] Inisialisasi chart selesai.');
+            } catch (e) {
+                console.error('💥 [CHARTS] Error fatal saat inisialisasi chart:', e.message, e.stack);
             }
         }
+
+        // Pastikan variabel ini ada di luar fungsi
+        let isFetchingLatest =  false;
+        let isFetchingPrediction = false;
 
         async function fetchLatest() {
-            const now = Date.now();
-            if (lastFetchTime !== null) {
-                const deltaMs = now - lastFetchTime;
-                const hz = 1000 / deltaMs;
-                document.getElementById('refreshRate').innerHTML = `${hz.toFixed(1)} Hz <span style="font-size:0.8rem;">(${deltaMs} ms)</span>`;
-            }
-            lastFetchTime = now;
+            if (isFetchingLatest) return; // CEK: Jika sedang fetch, abaikan panggilan ini
+            isFetchingLatest = true;
+            
             const url = '/latest' + (fileId ? ('?id=' + encodeURIComponent(fileId) + '&n=300') : '?n=300');
             try {
                 const resp = await fetch(url);
                 if (!resp.ok) {
-                    document.getElementById('connectionStatus').innerText = 'Error ' + resp.status;
+                    console.error(`❌ [FETCH] GET /latest gagal. Status: ${resp.status}`);
                     return;
                 }
+                
                 const j = await resp.json();
+                console.log(`📥 [FETCH] Data mentah diterima:`, j);
 
-                // Ambil data MPU dan BME dari respons (asumsikan j memiliki mpu1, mpu2, bme)
                 let mpu1Data = j.mpu1 || [];
                 let mpu2Data = j.mpu2 || [];
-                let bmeData = j.bme || [];  // array of BME readings
+                let bmeData = j.bme || [];
+                
+                latestSensorData = { mpu1: mpu1Data, mpu2: mpu2Data, bme: bmeData };
 
-                document.getElementById('connectionStatus').innerText = 'Connected ✓';
-
-                // Update BME status cards dengan data terbaru (ambil elemen terakhir)
-                if (bmeData.length > 0) {
-                    const latest = bmeData[bmeData.length - 1];
-                    document.getElementById('bmeTemp').innerHTML = (latest.temperature_c != null ? latest.temperature_c.toFixed(2) + ' °C' : '--');
-                    document.getElementById('bmeHum').innerHTML = (latest.humidity_percent != null ? latest.humidity_percent.toFixed(1) + ' %' : '--');
-                    document.getElementById('bmePress').innerHTML = (latest.pressure_hpa != null ? latest.pressure_hpa.toFixed(2) + ' hPa' : '--');
-                    document.getElementById('bmeAlt').innerHTML = (latest.altitude_m != null ? latest.altitude_m.toFixed(2) + ' m' : '--');
-                } else {
-                    document.getElementById('bmeTemp').innerHTML = '--';
-                    document.getElementById('bmeHum').innerHTML = '--';
-                    document.getElementById('bmePress').innerHTML = '--';
-                    document.getElementById('bmeAlt').innerHTML = '--';
+                // Update BME Charts
+                if (bmeData.length > 0 && pressureChart && altitudeChart) {
+                    const latestBme = bmeData[bmeData.length - 1];
+                    document.getElementById('latestPressure').innerHTML = latestBme.pressure_hpa != null ? latestBme.pressure_hpa.toFixed(2) + ' hPa' : '--';
+                    document.getElementById('latestAltitude').innerHTML = latestBme.altitude_m != null ? latestBme.altitude_m.toFixed(2) + ' m' : '--';
+                    
+                    const sortedBme = [...bmeData].sort((a,b) => (a.epoch_ms || 0) - (b.epoch_ms || 0));
+                    const labels = sortedBme.map(r => r.datetime ? r.datetime.split(' ')[1]?.slice(0, 8) : '');
+                    
+                    pressureChart.data.labels = labels.slice(-120);
+                    pressureChart.data.datasets[0].data = sortedBme.map(r => r.pressure_hpa).slice(-120);
+                    pressureChart.update('none');
+                    
+                    altitudeChart.data.labels = labels.slice(-120);
+                    altitudeChart.data.datasets[0].data = sortedBme.map(r => r.altitude_m).slice(-120);
+                    altitudeChart.update('none');
                 }
 
-                // Update tabel BME
-                updateBmeTable(bmeData);
+                // Update MPU Charts
+                if (accChart && gyroChart) {
+                    const buildSeries = (arr) => {
+                        if (!arr) return { times: [], accmag: [], gmag: [] };
+                        return {
+                            times: arr.map(r => r.datetime || ''),
+                            accmag: arr.map(r => Math.sqrt((Number(r.ax)||0)**2 + (Number(r.ay)||0)**2 + (Number(r.az)||0)**2)),
+                            gmag: arr.map(r => Math.sqrt((Number(r.gx)||0)**2 + (Number(r.gy)||0)**2 + (Number(r.gz)||0)**2))
+                        };
+                    };
+                    const s1 = buildSeries(mpu1Data);
+                    const s2 = buildSeries(mpu2Data);
+                    const maxPoints = 200;
+                    const times = (s1.times.length >= s2.times.length) ? s1.times.slice(-maxPoints) : s2.times.slice(-maxPoints);
 
-                // Hitung data rate untuk MPU (sama seperti sebelumnya)
-                let allData = [...mpu1Data, ...mpu2Data];
-                if (allData.length > 0) {
-                    allData.sort((a, b) => a.epoch_ms - b.epoch_ms);
-                    let maxEpoch = allData[allData.length - 1].epoch_ms;
-                    if (lastProcessedEpochMs === 0) {
-                        lastProcessedEpochMs = maxEpoch;
-                        document.getElementById('dataRate').innerHTML = `Memulai...`;
-                    } else {
-                        let newDataCount = allData.filter(d => d.epoch_ms > lastProcessedEpochMs).length;
-                        if (newDataCount > 0) {
-                            let deltaSeconds = (maxEpoch - lastProcessedEpochMs) / 1000.0;
-                            let rate = newDataCount / deltaSeconds;
-                            document.getElementById('dataRate').innerHTML = `${rate.toFixed(1)} <span style="font-size:0.8rem;">sampel/dtk</span>`;
-                            lastProcessedEpochMs = maxEpoch;
-                        } else {
-                            document.getElementById('dataRate').innerHTML = `0 <span style="font-size:0.8rem;">sampel/dtk</span>`;
-                        }
-                    }
-                } else {
-                    document.getElementById('dataRate').innerHTML = `Tidak ada data MPU`;
+                    accChart.data.labels = times;
+                    accChart.data.datasets[0].data = s1.accmag.slice(-times.length);
+                    accChart.data.datasets[1].data = s2.accmag.slice(-times.length);
+                    accChart.update('none');
+
+                    gyroChart.data.labels = times;
+                    gyroChart.data.datasets[0].data = s1.gmag.slice(-times.length);
+                    gyroChart.data.datasets[1].data = s2.gmag.slice(-times.length);
+                    gyroChart.update('none');
                 }
-
-                function buildSeries(arr) {
-                    if (!arr) return { times: [], accmag: [], gmag: [] };
-                    const times = arr.map(r => r.datetime || '');
-                    const accmag = arr.map(r => Math.sqrt( (Number(r.ax)||0)**2 + (Number(r.ay)||0)**2 + (Number(r.az)||0)**2 ));
-                    const gmag = arr.map(r => Math.sqrt( (Number(r.gx)||0)**2 + (Number(r.gy)||0)**2 + (Number(r.gz)||0)**2 ));
-                    return { times, accmag, gmag };
-                }
-
-                const s1 = buildSeries(mpu1Data);
-                const s2 = buildSeries(mpu2Data);
-                const maxPoints = 200;
-                const times = (s1.times.length >= s2.times.length) ? s1.times.slice(-maxPoints) : s2.times.slice(-maxPoints);
-
-                accChart.data.labels = times;
-                accChart.data.datasets[0].data = s1.accmag.slice(-times.length);
-                accChart.data.datasets[1].data = s2.accmag.slice(-times.length);
-                accChart.update('none');
-
-                gyroChart.data.labels = times;
-                gyroChart.data.datasets[0].data = s1.gmag.slice(-times.length);
-                gyroChart.data.datasets[1].data = s2.gmag.slice(-times.length);
-                gyroChart.update('none');
 
                 updateTable('#tbl1', mpu1Data);
                 updateTable('#tbl2', mpu2Data);
 
             } catch (e) {
-                console.error('fetchLatest error', e);
-                document.getElementById('connectionStatus').innerText = 'Error: ' + e.message;
+                console.error('💥 [FETCH] Exception di fetchLatest:', e.message);
+            } finally {
+                isFetchingLatest = false; // WAJIB: Lepaskan flag agar bisa fetch lagi
             }
         }
 
-<<<<<<< HEAD
         async function fetchPrediction() {
-            const url = '/predict' + (fileId ? ('?id=' + encodeURIComponent(fileId)) : '');
+            if (isFetchingPrediction) return; 
+            isFetchingPrediction = true;
+
+            const mpu1_last = latestSensorData.mpu1.length > 0 ? latestSensorData.mpu1[latestSensorData.mpu1.length - 1] : {};
+            const mpu2_last = latestSensorData.mpu2.length > 0 ? latestSensorData.mpu2[latestSensorData.mpu2.length - 1] : {};
+            const bme_last  = latestSensorData.bme.length > 0  ? latestSensorData.bme[latestSensorData.bme.length - 1]  : {};
+
+            const sample = {
+                ax1: mpu1_last.ax || 0, ay1: mpu1_last.ay || 0, az1: mpu1_last.az || 0,
+                gx1: mpu1_last.gx || 0, gy1: mpu1_last.gy || 0, gz1: mpu1_last.gz || 0,
+                ax2: mpu2_last.ax || 0, ay2: mpu2_last.ay || 0, az2: mpu2_last.az || 0,
+                gx2: mpu2_last.gx || 0, gy2: mpu2_last.gy || 0, gz2: mpu2_last.gz || 0,
+                pressure_hpa: bme_last.pressure_hpa || 0, altitude_m: bme_last.altitude_m || 0
+            };
+
+            const payload = { session_id: "web_dashboard_session", sample: sample };
+            let url = `/predict?thresh_ergo=${currentThreshErgo}&thresh_non=${currentThreshNon}`;
+            if (fileId) url += `&id=${encodeURIComponent(fileId)}`;
+
+            console.log('📤 [PREDICT] Mengirim payload ke:', url);
+
             try {
-                const resp = await fetch(url);
-                if (!resp.ok) throw new Error('Prediction API error');
+                // TAMBAHAN: Timeout 5 detik agar tidak hang selamanya
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000); 
+
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+
+                if (!resp.ok) {
+                    const errText = await resp.text();
+                    console.error(`❌ [PREDICT] POST /predict gagal. Status: ${resp.status}. Body:`, errText);
+                    throw new Error(`HTTP ${resp.status}`);
+                }
+                
                 const data = await resp.json();
-                
-                const predElem = document.getElementById('latestPrediction');
+                console.log('✅ [PREDICT] Respons dari server:', data);
+
+                let predText = data.label || 'tidak pasti';
+                document.getElementById('latestPrediction').innerHTML = predText;
+
+                const probs = data.probabilities;
+                let confidencePercent = 0;
+                if (probs && probs.length > 0) {
+                    confidencePercent = (Math.max(...probs) * 100).toFixed(1);
+                }
+                document.getElementById('confidence').innerHTML = `Confidence: ${confidencePercent}%`;
+
                 const cardElem = document.getElementById('predictionCard');
+                cardElem.classList.remove('prediction-salah', 'prediction-benar');
+                if (predText === 'salah') cardElem.classList.add('prediction-salah');
+                else if (predText === 'benar') cardElem.classList.add('prediction-benar');
                 
-                // Jika tidak ada data atau error
-                if (data.label === "Tidak ada data" || data.prediction === -1) {
-                    predElem.innerText = "⏳ Menunggu data...";
-                    cardElem.classList.remove('prediction-salah', 'prediction-benar', 'prediction-berdiri', 'prediction-waiting');
-                    cardElem.classList.add('prediction-waiting');
-                    return;
+                if (predText && predText !== '--' && predText !== 'tidak pasti') {
+                    addToHistory(predText, confidencePercent);
                 }
-                
-                // Tampilkan label dan confidence (jika tersedia)
-                let displayText = data.label;
-                if (data.confidence !== undefined && typeof data.confidence === 'number') {
-                    const confidencePercent = (data.confidence * 100).toFixed(1);
-                    displayText = `${data.label} (${confidencePercent}%)`;
-                }
-                predElem.innerText = displayText;
-                
-                // Update warna card berdasarkan label (dan confidence threshold)
-                cardElem.classList.remove('prediction-salah', 'prediction-benar', 'prediction-berdiri', 'prediction-waiting');
-                if (data.label === 'Salah') {
-                    cardElem.classList.add('prediction-salah');
-                } else if (data.label === 'Benar') {
-                    cardElem.classList.add('prediction-benar');
-                } else if (data.label === 'Berdiri') {
-                    cardElem.classList.add('prediction-berdiri');
-                } else if (data.label === 'Tidak yakin') {
-                    // Tambahkan class khusus untuk "Tidak yakin" (warna kuning/oranye)
-                    cardElem.classList.add('prediction-uncertain');
-                } else {
-                    cardElem.classList.add('prediction-waiting');
-                }
+
             } catch (e) {
-                console.error('Prediction error:', e);
+                if (e.name === 'AbortError') {
+                    console.error('💥 [PREDICT] Request TIMEOUT setelah 5 detik. Server mungkin hang atau sibuk.');
+                } else {
+                    console.error('💥 [PREDICT] Exception:', e.message);
+                }
                 document.getElementById('latestPrediction').innerHTML = 'Error';
+                document.getElementById('confidence').innerHTML = 'Confidence: --%';
+            } finally {
+                isFetchingPrediction = false; // WAJIB: Lepaskan flag agar bisa fetch lagi
             }
         }
 
-=======
->>>>>>> parent of 575cbc6 (feat: Add Flask dashboard for real-time sensor data prediction)
         function updateTable(tblId, arr) {
             const tbody = document.querySelector(tblId + ' tbody');
+            if (!tbody) {
+                console.error(`❌ [TABLE] Tbody untuk ${tblId} TIDAK DITEMUKAN!`);
+                return;
+            }
             tbody.innerHTML = '';
             const last = (arr || []).slice(-10).reverse();
             for (const r of last) {
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${r.datetime || ''}</td>
-                    <td>${r.ax != null ? (typeof r.ax.toFixed === 'function' ? r.ax.toFixed(5) : r.ax) : ''}</td>
-                    <td>${r.ay != null ? (typeof r.ay.toFixed === 'function' ? r.ay.toFixed(5) : r.ay) : ''}</td>
-                    <td>${r.az != null ? (typeof r.az.toFixed === 'function' ? r.az.toFixed(5) : r.az) : ''}</td>
-                    <td>${r.gx != null ? (typeof r.gx.toFixed === 'function' ? r.gx.toFixed(3) : r.gx) : ''}</td>
-                    <td>${r.gy != null ? (typeof r.gy.toFixed === 'function' ? r.gy.toFixed(3) : r.gy) : ''}</td>
-                    <td>${r.gz != null ? (typeof r.gz.toFixed === 'function' ? r.gz.toFixed(3) : r.gz) : ''}</td>
+                    <td>${r.ax != null ? Number(r.ax).toFixed(3) : ''}</td>
+                    <td>${r.ay != null ? Number(r.ay).toFixed(3) : ''}</td>
+                    <td>${r.az != null ? Number(r.az).toFixed(3) : ''}</td>
+                    <td>${r.gx != null ? Number(r.gx).toFixed(3) : ''}</td>
+                    <td>${r.gy != null ? Number(r.gy).toFixed(3) : ''}</td>
+                    <td>${r.gz != null ? Number(r.gz).toFixed(3) : ''}</td>
                 `;
                 tbody.appendChild(tr);
             }
@@ -361,150 +478,21 @@
         let pollHandle = null;
         function startPoll() {
             if (pollHandle) clearInterval(pollHandle);
+            console.log('⏱️ [POLL] Memulai polling data setiap', refreshInterval, 'ms dan prediksi setiap', predictionInterval, 'ms');
             fetchLatest();
             pollHandle = setInterval(fetchLatest, refreshInterval);
-<<<<<<< HEAD
 
-               //INterval untuk fetch prediksi (lebih jarang dari data mentah) 
             if (window.predictionIntervalHandle) clearInterval(window.predictionIntervalHandle);
             window.predictionIntervalHandle = setInterval(fetchPrediction, predictionInterval);
-
-            window.addEventListener('message', function(event) {
-                if (event.data.type === 'updatePredictionInterval' && typeof event.data.interval === 'number') {
-                    predictionInterval = event.data.interval;
-                    // restart interval prediksi
-                    if (window.predictionIntervalHandle) clearInterval(window.predictionIntervalHandle);
-                    window.predictionIntervalHandle = setInterval(fetchPrediction, predictionInterval);
-                    console.log('Prediction interval updated to', predictionInterval, 'ms');
-                }
-            });
         }
 
-        async function loadPredictionInterval() {
-            try {
-                const resp = await fetch('/api/settings');
-                const config = await resp.json();
-                predictionInterval = config.prediction_interval_ms || 600;
-                if (window.predictionIntervalHandle) clearInterval(window.predictionIntervalHandle);
-                window.predictionIntervalHandle = setInterval(fetchPrediction, predictionInterval);
-            } catch(e) { console.warn(e); }
-=======
->>>>>>> parent of 575cbc6 (feat: Add Flask dashboard for real-time sensor data prediction)
-        }
-
-        document.addEventListener('DOMContentLoaded', startPoll);
-
-        
-    </script>
-    <script>
-        // 1. INISIALISASI & CEK FILE ID
-        //const fileId = "{{ file_id }}";
-        console.log("🚀 [INIT] Aplikasi SmartPose Dimulai.");
-        console.log("🔍 [INIT] File ID dari server:", fileId ? `'${fileId}'` : "KOSONG! (Ini bisa jadi penyebab data tidak muncul)");
-
-        if (!fileId) {
-            console.warn("⚠️ [WARNING] Halaman ini tidak memiliki parameter ?id=... di URL. Pastikan ESP32 dan Web membuka ID yang sama.");
-        }
-
-        // Fungsi untuk update UI (Sesuaikan dengan ID elemen HTML Anda)
-        function updateUI(latestData, predictData) {
-            console.log("🎨 [UI] Memulai update tampilan...");
-            
-            // Update Status Koneksi
-            const connStatus = document.getElementById('connection-status'); // Pastikan ID ini ada di HTML
-            if (connStatus) {
-                if (latestData && (latestData.mpu1?.length > 0 || latestData.mpu2?.length > 0)) {
-                    connStatus.innerText = "Connected";
-                    connStatus.style.color = "green";
-                    console.log("✅ [UI] Status Koneksi: Connected");
-                } else {
-                    connStatus.innerText = "Disconnected (No Data)";
-                    connStatus.style.color = "red";
-                    console.log("❌ [UI] Status Koneksi: Disconnected (Data kosong dari server)");
-                }
-            }
-
-            // Update Prediksi
-            const predLabel = document.getElementById('latest-prediction'); // Pastikan ID ini ada di HTML
-            if (predLabel && predictData) {
-                predLabel.innerText = predictData.label || "Menunggu...";
-                console.log("🎯 [UI] Label Prediksi diupdate ke:", predictData.label);
-            } else if (predLabel) {
-                predLabel.innerText = "Menunggu data...";
-            }
-
-            // Update BME280
-            if (latestData && latestData.bme && latestData.bme.length > 0) {
-                const latestBme = latestData.bme[latestData.bme.length - 1];
-                console.log("🌡️ [UI] Data BME Terbaru:", latestBme);
-                // document.getElementById('pressure').innerText = latestBme.pressure_hpa;
-                // document.getElementById('altitude').innerText = latestBme.altitude_m;
-            }
-        }
-
-        // 2. FUNGSI FETCH DATA
-        async function fetchData() {
-            console.log("--------------------------------------------------");
-            console.log("🔄 [FETCH] Memulai siklus pengambilan data...");
-
-            let latestData = null;
-            let predictData = null;
-
-            // A. Fetch /latest
-            try {
-                const latestUrl = `/latest?id=${fileId}`;
-                console.log("📡 [FETCH /latest] Mengirim request ke:", latestUrl);
-                const resLatest = await fetch(latestUrl);
-                console.log("📥 [FETCH /latest] Status Response:", resLatest.status);
-                
-                if (resLatest.ok) {
-                    latestData = await resLatest.json();
-                    console.log("📦 [FETCH /latest] Data Diterima:", latestData);
-                    
-                    if (latestData.mpu1?.length === 0 && latestData.mpu2?.length === 0 && latestData.bme?.length === 0) {
-                        console.warn("⚠️ [ANALISIS] Server membalas dengan array kosong. Pastikan ESP32 mengirim 'file_id' yang sama persis dengan yang ada di URL web!");
-                    }
-                } else {
-                    console.error("❌ [FETCH /latest] Gagal dengan status:", resLatest.status);
-                }
-            } catch (err) {
-                console.error("🔥 [FETCH /latest] EXCEPTION / ERROR JARINGAN:", err);
-            }
-
-            // B. Fetch /predict
-            try {
-                const predictUrl = `/predict?id=${fileId}`;
-                console.log("🧠 [FETCH /predict] Mengirim request ke:", predictUrl);
-                const resPredict = await fetch(predictUrl);
-                console.log("📥 [FETCH /predict] Status Response:", resPredict.status);
-                
-                if (resPredict.ok) {
-                    predictData = await resPredict.json();
-                    console.log("🎯 [FETCH /predict] Hasil Prediksi:", predictData);
-                    
-                    if (predictData.error === "No recent sensor data") {
-                        console.error("🚨 [ANALISIS PENTING] Server tidak menemukan data sensor baru dalam 5 detik terakhir untuk file_id ini!");
-                        console.error("💡 [SOLUSI] Cek apakah ESP32 mengirim 'epoch_ms' (UNIX Timestamp) yang benar, bukan uptime. Cek juga kesamaan 'file_id'.");
-                    }
-                } else {
-                    console.error("❌ [FETCH /predict] Gagal dengan status:", resPredict.status);
-                }
-            } catch (err) {
-                console.error("🔥 [FETCH /predict] EXCEPTION / ERROR JARINGAN:", err);
-            }
-
-            // C. Update UI
-            updateUI(latestData, predictData);
-
-            console.log("⏳ [FETCH] Siklus selesai. Menunggu 1 detik sebelum fetch berikutnya...");
-            setTimeout(fetchData, 1000); // Loop setiap 1 detik
-        }
-
-        // 3. JALANKAN SAAT HALAMAN DIMUAT
         document.addEventListener('DOMContentLoaded', () => {
-            console.log("🟢 [DOM] Halaman selesai dimuat. Menjalankan fetchData()...");
-            fetchData();
+            console.log('🏁 [INIT] DOMContentLoaded terpicu. Memulai setup...');
+            loadThresholds();
+            initThresholdControls();
+            initCharts(); // Inisialisasi chart dengan aman
+            startPoll();  // Mulai polling data
         });
-    </script>    
+    </script>
 </body>
 </html>

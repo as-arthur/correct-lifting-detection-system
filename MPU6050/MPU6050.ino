@@ -9,10 +9,10 @@
 #include <LittleFS.h>
 
 // ---------- CONFIG ----------
-#define WIFI_SSID "realme" //"Unknown Device" //"realme" 
-#define WIFI_PASS "11111111" //"22222222" //"11111111"
+#define WIFI_SSID "Unknown Device" //"Unknown Device" //"realme" 
+#define WIFI_PASS "22222222" //"22222222" //"11111111"
 
-#define SERVER_HOST "10.215.136.27" // Ganti ke IP laptop Flask
+#define SERVER_HOST "10.63.216.166" // Ganti ke IP laptop Flask
 #define SERVER_PORT 5000
 #define SERVER_PATH "/data"
 
