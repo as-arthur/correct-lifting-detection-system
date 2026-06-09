@@ -342,6 +342,7 @@ class InferencePipeline:
             'label'        : self.LABEL_MAP.get(pred_class, 'unknown'),
             'probabilities': {'salah': round(prob_salah, 4), 'benar': round(prob_benar, 4)},
             'feature_count': len(self.expected_features),
+            'extracted_features': df_aligned.iloc[0].to_dict(),
         }
 
     def reset_session(self, session_id: str = 'default') -> None:

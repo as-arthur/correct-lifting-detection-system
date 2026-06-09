@@ -10,7 +10,7 @@
 #define WIFI_SSID "Unknown Device"//"Unknown Device" //"realme" 
 #define WIFI_PASS "22222222"//"22222222" //"11111111"
 
-#define SERVER_HOST "10.63.216.166" //"172.31.107.166" "10.215.136.27"
+#define SERVER_HOST "10.124.67.166" //"172.31.107.166" "10.215.136.27"
 #define SERVER_PORT 5000
 #define SERVER_PATH "/data"
 

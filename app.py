@@ -1,4 +1,7 @@
 # app.py
+import datetime
+import uuid
+import pandas as pd
 import os
 import re   
 import csv
@@ -29,22 +32,21 @@ esp_ip_map = {}
 
 def send_buzzer_command(file_id, turn_on=True):
     """Kirim perintah ke ESP untuk menyalakan/mematikan buzzer"""
-    ip = esp_ip_map.get(file_id)
-    if not ip:
-        print(f"[WARNING] Tidak tahu IP ESP untuk file_id {file_id}")
-        return False
+    # Gunakan IP default 10.124.67.39 jika file_id tidak ada di map
+    ip = esp_ip_map.get(file_id, "10.124.67.39")
     state = "1" if turn_on else "0"
     url = f"http://{ip}/buzzer?state={state}"
+    
     try:
         resp = requests.get(url, timeout=1)
         if resp.status_code == 200:
-            print(f"[OK] Buzzer {file_id} -> {'ON' if turn_on else 'OFF'}")
+            print(f"[OK] Buzzer -> {'ON' if turn_on else 'OFF'} ")
             return True
         else:
-            print(f"[ERROR] Gagal, status {resp.status_code}")
+            print(f"[ERROR] Gagal, status {resp.status_code} ")
             return False
     except Exception as e:
-        print(f"[ERROR] {e}")
+        print(f"[ERROR] Gagal kirim buzzer: {e} ")
         return False
 
 # sanitize file id: hanya huruf, angka, underscore, dash; sisanya diganti underscore
@@ -534,26 +536,82 @@ def predict():
     # 1. Ambil instance pipeline singleton
     pipeline = get_pipeline()
 
-    # 2. Jalankan prediksi (langsung gunakan sample karena sudah 14 kolom)
+    # 2. Jalankan prediksi
     result = pipeline.predict(sample, session_id=session_id)
 
     # 3. Mapping hasil pipeline ke format response
     pred_class = result['prediction']
     prob_salah = result['probabilities']['salah']   
     prob_benar = result['probabilities']['benar']   
+    extracted_features = result.get('extracted_features', {})  # <--- AMBIL FITUR HASIL EKSTRAKSI
 
     thresh_ergo = float(request.args.get('thresh_ergo', 0.70))
     thresh_non = float(request.args.get('thresh_non', 0.60))
 
+    # Tentukan label
     if prob_salah >= thresh_non:
         pred = 1
         label = "salah"
+        send_buzzer_command(session_id, turn_on=True)  # Nyalakan buzzer untuk "salah"
     elif prob_benar >= thresh_ergo:
         pred = 0
         label = "benar"
+        send_buzzer_command(session_id, turn_on=False)  # Matikan buzzer untuk "benar"
     else:
         pred = -1
         label = "tidak pasti"
+        send_buzzer_command(session_id, turn_on=False)  # Matikan buzzer untuk "tidak pasti"
+
+
+    # === LOGIKA LOG CSV (history/prediction_log.csv) ===
+    try:
+        log_dir = 'history'
+        log_file = os.path.join(log_dir, 'prediction_log.csv')
+        
+        # Buat folder 'history' jika belum ada
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+            
+        now = datetime.datetime.now()
+        date_str = now.strftime('%Y-%m-%d')
+        time_str = now.strftime('%H:%M:%S')
+        confidence = max(prob_benar, prob_salah)
+        
+        # 1. Susun data log dasar (Tanpa ID Unik)
+        log_data = {
+            'date': date_str,
+            'time': time_str,
+            'prediction': label,
+            'confidence': round(confidence, 4)
+        }
+        
+        
+        # 3. Tambahkan semua fitur hasil ekstraksi (46 kolom)
+        # Catatan: Ini akan menimpa 14 kolom mentah dengan nilai yang sama persis, memastikan konsistensi
+        log_data.update(extracted_features)
+        
+        file_exists = os.path.isfile(log_file)
+        
+        # Tentukan fieldnames (header CSV)
+        if file_exists:
+            # Jika file sudah ada, baca header agar urutan kolom tetap konsisten
+            with open(log_file, 'r', encoding='utf-8') as f:
+                reader = csv.reader(f)
+                fieldnames = next(reader, None)
+        else:
+            # Header baru: date, time, prediction, confidence, lalu raw features, lalu extracted features
+            fieldnames = ['date', 'time', 'prediction', 'confidence'] + list(extracted_features.keys())
+            
+        # Tulis ke CSV
+        with open(log_file, 'a', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(log_data)
+            
+    except Exception as e:
+        print(f"[ERROR] Gagal menulis ke log CSV: {e}")
+    # ================================================
 
     return jsonify({
         "status": "ready",
