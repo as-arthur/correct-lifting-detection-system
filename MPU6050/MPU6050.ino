@@ -9,10 +9,10 @@
 #include <LittleFS.h>
 
 // ---------- CONFIG ----------
-#define WIFI_SSID "Unknown Device" //"Unknown Device" //"realme" 
-#define WIFI_PASS "22222222" //"22222222" //"11111111"
+#define WIFI_SSID "Unknown Device" //"Unknown Device" //"realme" "e-UnimalNet"
+#define WIFI_PASS "22222222" //"22222222" //"11111111" ""
 
-#define SERVER_HOST "10.124.67.166" // Ganti ke IP laptop Flask
+#define SERVER_HOST "10.109.43.166" // Ganti ke IP laptop Flask
 #define SERVER_PORT 5000
 #define SERVER_PATH "/data"
 
@@ -20,7 +20,9 @@
 #define SEND_TO_SERVER true   // set false jika mau non-aktifkan POST
 #define I2C_SCAN_ON_BOOT false // true => jalankan I2C scanner waktu boot (debug)
 #define BUZZER_PIN D7
-bool buzzerState = true; //Test buzzer : http://192.168.100.74(IP IoT)/buzzer?state=0/state=1
+bool buzzerState = true; //Test buzzer : http://172.18.1.39/buzzer?state=0/state=1
+unsigned long buzzerOffTime = 0;
+
 
 #define CSV_PATH "data.csv"
 const unsigned long SAMPLE_INTERVAL = 200; // ms
@@ -353,6 +355,7 @@ void setup() {
     if (s == "1") {
       digitalWrite(BUZZER_PIN, HIGH);
       buzzerState = true;
+      buzzerOffTime = millis() + 2000;
     } else if (s == "0") {
       digitalWrite(BUZZER_PIN, LOW);
       buzzerState = false;
@@ -401,5 +404,12 @@ void loop() {
     float gz_dps = g.gyro.z * 57.295779513;
     writeCSVToFile(datetime, epoch_ms, now, 2, ax_g, ay_g, az_g, gx_dps, gy_dps, gz_dps);
     sendToServer(2, datetime, epoch_ms, now, ax_g, ay_g, az_g, gx_dps, gy_dps, gz_dps);
+  }
+
+  if (buzzerState && buzzerOffTime > 0 && millis() >= buzzerOffTime) {
+    digitalWrite(BUZZER_PIN, LOW);
+    buzzerState = false;
+    buzzerOffTime = 0;
+    Serial.println("Buzzer auto OFF");
   }
 }

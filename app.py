@@ -33,12 +33,12 @@ esp_ip_map = {}
 def send_buzzer_command(file_id, turn_on=True):
     """Kirim perintah ke ESP untuk menyalakan/mematikan buzzer"""
     # Gunakan IP default 10.124.67.39 jika file_id tidak ada di map
-    ip = esp_ip_map.get(file_id, "10.124.67.39")
+    ip = esp_ip_map.get(file_id, "10.109.43.39")
     state = "1" if turn_on else "0"
     url = f"http://{ip}/buzzer?state={state}"
     
     try:
-        resp = requests.get(url, timeout=1)
+        resp = requests.get(url, timeout=2)
         if resp.status_code == 200:
             print(f"[OK] Buzzer -> {'ON' if turn_on else 'OFF'} ")
             return True
@@ -560,7 +560,6 @@ def predict():
     else:
         pred = -1
         label = "tidak pasti"
-        send_buzzer_command(session_id, turn_on=False)  # Matikan buzzer untuk "tidak pasti"
 
 
     # === LOGIKA LOG CSV (history/prediction_log.csv) ===
